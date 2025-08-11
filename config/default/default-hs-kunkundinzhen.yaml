@@ -1,0 +1,4 @@
+# 丁真功能配置
+dz: true        # 丁真功能总开关
+weekday: true   # 星期几功能开关
+kunkun: true    # 坤坤功能开关
