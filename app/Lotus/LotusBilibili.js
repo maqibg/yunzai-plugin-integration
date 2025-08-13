@@ -13,6 +13,7 @@ const dataDir = path.join(pluginRoot, 'data', 'bilibili');
 const BILI_VIDEO_INFO_API = "http://api.bilibili.com/x/web-interface/view";
 const BILI_PLAY_STREAM_API = "https://api.bilibili.com/x/player/playurl";
 const BILI_STREAM_INFO_API = "https://api.live.bilibili.com/room/v1/Room/get_info";
+const BILI_SUMMARY_API = "https://api.bilibili.com/x/web-interface/view/conclusion/get";
 const COMMON_HEADER = {
     'User-Agent': 'Mozilla.5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
     'Referer': 'https://www.bilibili.com/',
@@ -147,6 +148,7 @@ export class LotusBilibiliParser extends plugin {
     
     async handleSinglePageVideo(e, url, videoInfo) {
         await e.reply(this.constructInfoMessage(videoInfo));
+        await this.trySendSummary(e, url, videoInfo);
         const cfg = setting.getConfig('lotus-parser');
         if (!cfg || !cfg.bilibili) {
             logger.error('[Lotus插件] 配置文件加载失败，请检查 lotus-parser.yaml');
@@ -196,27 +198,79 @@ export class LotusBilibiliParser extends plugin {
     async handleMergeAllPages(e, url, videoInfo, tempPath) {
         await e.reply("已识别到合并全部P数指令，开始下载所有分P，过程可能需要数分钟，请耐心等待...");
         await fs.promises.mkdir(tempPath, { recursive: true });
-        
+
+        // 运行 BBDown 下载所有分P
         await this.runBBDown(url, tempPath);
 
-        const filesInTemp = fs.readdirSync(tempPath, { withFileTypes: true });
-        const subDir = filesInTemp.find(f => f.isDirectory());
-        if (!subDir) {
-            throw new Error("BBDown执行完毕，但未找到预期的子文件夹。");
-        }
-        
-        const subDirPath = path.join(tempPath, subDir.name);
-        const videoFiles = fs.readdirSync(subDirPath).filter(f => f.endsWith('.mp4') || f.endsWith('.mkv')).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
-        if (videoFiles.length === 0) {
-            throw new Error("在子文件夹中未找到任何视频文件。");
+        // 兼容：BBDown 可能先以纯数字临时目录命名，完成后重命名为“视频标题”
+        const dirents = (() => {
+            try { return fs.readdirSync(tempPath, { withFileTypes: true }); } catch { return []; }
+        })();
+        // 查找包含视频文件的目录；若多于一个，按最近修改时间挑选
+        const candidateDirs = dirents.filter(d => d.isDirectory()).map(d => path.join(tempPath, d.name));
+        const hasVideo = (dir) => {
+            try {
+                const list = fs.readdirSync(dir);
+                return list.some(n => /\.(mp4|mkv)$/i.test(n));
+            } catch { return false; }
+        };
+        let workDir = candidateDirs.find(hasVideo);
+        if (!workDir) {
+            // 可能在更深层，或重命名尚未发生，递归搜寻
+            const allDirs = [];
+            const walkDirs = (d) => {
+                let l = [];
+                try { l = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+                for (const ent of l) {
+                    if (ent.isDirectory()) {
+                        const p = path.join(d, ent.name);
+                        allDirs.push(p);
+                        walkDirs(p);
+                    }
+                }
+            };
+            walkDirs(tempPath);
+            workDir = allDirs.find(hasVideo) || tempPath;
         }
 
-        await e.reply(`所有分P下载完成，共${videoFiles.length}个文件，开始合并...`);
+        // 收集全部视频文件（递归）
+        const files = [];
+        const walkFiles = (d) => {
+            let l = [];
+            try { l = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+            for (const ent of l) {
+                const p = path.join(d, ent.name);
+                if (ent.isDirectory()) walkFiles(p);
+                else if (/\.(mp4|mkv)$/i.test(ent.name)) files.push(p);
+            }
+        };
+        walkFiles(workDir);
+        if (files.length === 0) {
+            throw new Error(`在下载目录未找到任何视频文件：${workDir}`);
+        }
 
+        // 排序：优先根据文件名中的 [P<number>]，否则自然排序
+        const pIndex = (name) => {
+            // 适配 ASCII 方括号 [P1] 与全角括号 【P1】 的命名
+            const m = name.match(/(?:\[|【)\s*P\s*(\d+)(?:\]|】)/i);
+            return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+        };
+        files.sort((a, b) => {
+            const pa = pIndex(path.basename(a));
+            const pb = pIndex(path.basename(b));
+            if (pa !== pb) return pa - pb;
+            return path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true });
+        });
+
+        await e.reply(`所有分P下载完成，共${files.length}个文件，开始合并...`);
+
+        // 生成 ffmpeg concat 列表
         const filelistPath = path.join(tempPath, 'filelist.txt');
-        const filelistContent = videoFiles.map(f => `file '${path.join(subDirPath, f).replace(/'/g, "'\\''")}'`).join('\n');
+        const esc = (p) => p.replace(/'/g, "'\\''");
+        const filelistContent = files.map(f => `file '${esc(f)}'`).join('\n');
         fs.writeFileSync(filelistPath, filelistContent);
 
+        // 合并输出
         const outputFile = path.join(tempPath, `${videoInfo.bvid}.mp4`);
         await this.mergeFilesWithFfmpeg(filelistPath, outputFile);
 
@@ -226,12 +280,34 @@ export class LotusBilibiliParser extends plugin {
 
     async downloadSingleWithBBDown(e, url, tempPath, videoInfo, pageNum = null) {
         await this.runBBDown(url, tempPath, pageNum, `-F ${videoInfo.bvid}`);
-        const expectedFile = path.join(tempPath, `${videoInfo.bvid}.mp4`);
-        if (fs.existsSync(expectedFile)) {
-            await this.sendVideo(e, expectedFile, `${videoInfo.bvid}.mp4`);
-        } else {
-            throw new Error(`BBDown执行完毕，但未找到预期的输出文件: ${videoInfo.bvid}.mp4`);
+        // 递归查找 BBDown 输出（可能位于以数字或标题命名的子目录，文件名通常为“标题+后缀”，多P时含【P*】）
+        const candidates = [];
+        const walk = (dir) => {
+            let list = [];
+            try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+            for (const ent of list) {
+                const p = path.join(dir, ent.name);
+                if (ent.isDirectory()) walk(p);
+                else if (/\.(mp4|mkv)$/i.test(ent.name)) candidates.push(p);
+            }
+        };
+        walk(tempPath);
+        if (candidates.length === 0) {
+            throw new Error(`BBDown执行完毕，但未找到输出视频文件: 目录 ${tempPath}`);
         }
+        // 如果指定了分P，优先匹配 [P{n}] 或 【P{n}】
+        const pTag = pageNum ? new RegExp(`(?:\\\\[|【)\\s*P\\s*${pageNum}(?:\\\\]|】)`, 'i') : null;
+        let pickList = candidates;
+        if (pTag) {
+            const filtered = candidates.filter(f => pTag.test(path.basename(f)));
+            if (filtered.length > 0) pickList = filtered;
+        }
+        // 选择体积最大的一个作为最优输出
+        const pick = pickList.sort((a, b) => {
+            try { return fs.statSync(b).size - fs.statSync(a).size; } catch { return 0; }
+        })[0];
+        const finalName = path.basename(pick);
+        await this.sendVideo(e, pick, finalName);
     }
     
     async handleLive(e, url) {
@@ -394,18 +470,97 @@ export class LotusBilibiliParser extends plugin {
     }
     
     constructInfoMessage(videoInfo, partTitle = null, isMultiPage = false) {
-        const { pic, stat, owner, title } = videoInfo;
-        const config = setting.getConfig('lotus-parser');
-        let infoText = [
-            `${config?.general?.identifyPrefix || '[Lotus插件]'} ${title}`,
-            partTitle ? `P: ${partTitle}` : '',
-            `UP: ${owner.name}`,
-            `播放: ${stat.view} | 弹幕: ${stat.danmaku} | 点赞: ${stat.like}`,
-        ];
-        if (isMultiPage && !partTitle) {
-            infoText.push(`(共${videoInfo.pages.length}P)`);
+        const { pic, stat, owner, title, desc, pages } = videoInfo;
+        const cfg = setting.getConfig('lotus-parser');
+        const b = cfg?.bilibili || {};
+        const lines = [];
+        // 标题
+        lines.push(`${cfg?.general?.identifyPrefix || '[Lotus解析]'} ${title}`);
+        if (partTitle) lines.push(`P: ${partTitle}`);
+        // 基本信息
+        if (b.displayInfo !== false) {
+            lines.push(`UP: ${owner.name}`);
+            lines.push(`播放: ${stat.view} | 弹幕: ${stat.danmaku} | 点赞: ${stat.like}`);
+        } else {
+            lines.push(`UP: ${owner.name}`);
         }
-        return [segment.image(pic), infoText.filter(Boolean).join('\n')];
+        // 简介
+        if (b.displayIntro) {
+            const limit = Number(b.introLenLimit) || 120;
+            const text = desc || '';
+            const intro = text.length > limit ? `${text.slice(0, limit)}...` : text;
+            if (intro) lines.push(`简介: ${intro}`);
+        }
+        if (isMultiPage && !partTitle && pages?.length) {
+            lines.push(`(共${pages.length}P)`);
+        }
+        const parts = [];
+        if (b.displayCover !== false && pic) parts.push(segment.image(pic));
+        parts.push(lines.filter(Boolean).join('\n'));
+        return parts;
+    }
+    
+    async trySendSummary(e, url, videoInfo) {
+        try {
+            const cfg = setting.getConfig('lotus-parser');
+            const b = cfg?.bilibili || {};
+            if (!b.displaySummary) return;
+            const pParam = this.getPParam(url);
+            let targetCid = videoInfo.cid;
+            if (pParam && videoInfo.pages && videoInfo.pages.length >= pParam) {
+                targetCid = videoInfo.pages[pParam - 1].cid;
+            }
+            const summaryText = await this.getBiliSummary(videoInfo.bvid, targetCid, videoInfo.owner.mid);
+            if (summaryText) {
+                await e.reply(`「Lotus x bilibili」摘要\n${summaryText}`);
+            }
+        } catch (err) {
+            logger.debug('[Lotus插件][B站] 摘要生成失败或不支持，已忽略');
+        }
+    }
+
+    async getBiliSummary(bvid, cid, up_mid) {
+        try {
+            const { sessdata } = await this.getSessData();
+            const query = new URLSearchParams({ bvid, cid: String(cid), up_mid: String(up_mid) }).toString();
+            const resp = await fetch(`${BILI_SUMMARY_API}?${query}`, {
+                headers: {
+                    ...COMMON_HEADER,
+                    ...(sessdata ? { Cookie: `SESSDATA=${sessdata}` } : {})
+                }
+            });
+            const json = await resp.json();
+            const data = json?.data?.model_result;
+            const summary = data?.summary;
+            const outline = data?.outline;
+            if (!summary && !outline) return '';
+            let text = '';
+            if (summary) text += `摘要：${summary}\n`;
+            if (Array.isArray(outline)) {
+                for (const item of outline) {
+                    const title = item?.title;
+                    const parts = item?.part_outline || [];
+                    if (title) text += `- ${title}\n`;
+                    for (const pt of parts) {
+                        const ts = this.formatTime(pt?.timestamp || 0);
+                        const ct = pt?.content || '';
+                        text += `${ts}  ${ct}\n`;
+                    }
+                }
+            }
+            return text.trim();
+        } catch (err) {
+            return '';
+        }
+    }
+
+    formatTime(totalSeconds) {
+        totalSeconds = Math.max(0, Math.floor(totalSeconds));
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
     }
 
     /**

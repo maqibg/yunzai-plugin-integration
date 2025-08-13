@@ -86,3 +86,21 @@ npm install                 # 安装依赖
 - 配置文件需要提供默认模板在`config/default/`目录
 - 图片资源需要合理组织在`resources/`目录下
 - 每个功能类需要正确导出以供模块系统加载
+## B站解析展示配置（Lotus）
+
+已在 Lotus 模块接入可配置的展示内容，默认仅展示封面与基本信息：
+
+配置文件：`config/default/default-lotus-parser.yaml`（首次运行会复制到 `config/lotus-parser.yaml`）
+
+```yaml
+bilibili:
+  displayCover: true     # 是否显示封面
+  displayInfo: true      # 是否显示播放/弹幕/点赞等信息
+  displayIntro: false    # 是否显示简介
+  introLenLimit: 120     # 简介最大长度
+  displaySummary: false  # 是否显示B站官方总结（需Cookie，可能受限）
+```
+
+锅巴界面：在「Lotus解析器配置 -> B站解析配置」下可视化切换以上开关与长度。
+
+注意：开启 `displaySummary` 需要有效的 `SESSDATA`（可在配置 `sessData` 或通过 BBDown 登录生成）。

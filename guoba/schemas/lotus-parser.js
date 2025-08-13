@@ -27,6 +27,41 @@ export const lotusParserSchema = {
               }
             },
             {
+              field: 'displayCover',
+              label: '显示封面',
+              bottomHelpMessage: '是否在消息中展示视频封面',
+              component: 'Switch',
+              componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+            },
+            {
+              field: 'displayInfo',
+              label: '显示信息',
+              bottomHelpMessage: '是否展示播放/弹幕/点赞等统计信息',
+              component: 'Switch',
+              componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+            },
+            {
+              field: 'displayIntro',
+              label: '显示简介',
+              bottomHelpMessage: '是否展示视频简介（会按长度截断）',
+              component: 'Switch',
+              componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+            },
+            {
+              field: 'introLenLimit',
+              label: '简介长度',
+              bottomHelpMessage: '简介展示的最大字符数，超出自动省略',
+              component: 'InputNumber',
+              componentProps: { min: 30, max: 1000, placeholder: '120' }
+            },
+            {
+              field: 'displaySummary',
+              label: '显示总结',
+              bottomHelpMessage: '调用B站官方总结接口生成摘要（需Cookie，可能受接口策略影响）',
+              component: 'Switch',
+              componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+            },
+            {
               field: 'useBBDown',
               label: '使用BBDown',
               bottomHelpMessage: '是否优先使用BBDown进行下载，启用后可解析会员内容且更可靠',

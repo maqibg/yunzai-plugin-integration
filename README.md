@@ -106,6 +106,12 @@ bilibili:
   resolution: 64         # 默认画质 (720P)
   durationLimit: 3600    # 时长限制(秒)
   fileSizeLimit: 200     # 文件大小限制(MB)
+  # 展示控制（新增）
+  displayCover: true     # 是否显示封面
+  displayInfo: true      # 是否显示播放/弹幕/点赞等信息
+  displayIntro: false    # 是否显示简介
+  introLenLimit: 120     # 简介最大长度
+  displaySummary: false  # 是否显示B站官方总结（需Cookie，可能受限）
 
 general:
   identifyPrefix: "[Lotus解析]"  # 消息前缀
@@ -184,6 +190,7 @@ yunzai-plugin-integration/
 | **Auto-Plugin** | auto-plugin | Nwflower | [GitHub](https://github.com/Nwflower/auto-plugin) |
 | **Lotus** | Lotus-Plugin | SummerLotus520 | [GitHub](https://github.com/SummerLotus520/Lotus-Plugin) |
 | **Cyxz** | cyxz-plugin | xiaotian2333 | [GitHub](https://github.com/xiaotian2333/cyxz-plugin) |
+| 参考 | rconsole-plugin | zhiyu1998 | [GitHub](https://github.com/zhiyu1998/rconsole-plugin) |
 
 ## 🤝 贡献指南
 

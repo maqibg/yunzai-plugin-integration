@@ -20,6 +20,13 @@ bilibili:
   # [核心配置] 视频文件大小限制（单位MB），超过则不下载视频，仅发送信息。
   # 设置为0表示无限制，默认限制为200MB
   fileSizeLimit: 200
+
+  # [展示配置] 是否显示封面/信息/简介/总结（默认封面+信息开启，简介与总结关闭）
+  displayCover: true
+  displayInfo: true
+  displayIntro: false
+  introLenLimit: 120
+  displaySummary: false
   
 
 # ---------------- 外部工具路径 ----------------
