@@ -44,3 +44,4 @@ config/*.yaml
 *.backup
 *.bak
 *.old
+CLAUDE.md
