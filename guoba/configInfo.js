@@ -1,7 +1,9 @@
 import { hsDingzhenSchema } from './schemas/hs-dingzhen.js'
 import { lotusParserSchema } from './schemas/lotus-parser.js'
+import { rconsoleSchema } from './schemas/rconsole.js'
 import hsSetting from '../model/hs/hs-setting.js'
 import lotusSetting from '../model/lotus/lotus-setting.js'
+import rconsoleSetting from '../model/rconsole/rconsole-setting.js'
 
 // 将所有 schema 导出一个统一的配置对象
 // key 即为后续在 config.yaml 中保存的键名
@@ -14,13 +16,18 @@ export const config = {
     {
       title: 'Lotus解析器配置',
       ...lotusParserSchema
+    },
+    {
+      title: 'Rconsole 查询与趣味',
+      ...rconsoleSchema
     }
   ],
   getConfigData() {
     // 获取当前配置数据
     return {
       'hs-kunkundinzhen': hsSetting.getConfig('hs-kunkundinzhen'),
-      'lotus-parser': lotusSetting.getConfig('lotus-parser')
+      'lotus-parser': lotusSetting.getConfig('lotus-parser'),
+      'rconsole': rconsoleSetting.getConfig('rconsole')
     }
   },
   setConfigData(data, { Result }) {
@@ -36,6 +43,12 @@ export const config = {
       // 保存lotus-parser配置
       if (data['lotus-parser']) {
         const success = lotusSetting.setConfig('lotus-parser', data['lotus-parser'])
+        if (success) saved = true
+      }
+      
+      // 保存rconsole配置
+      if (data['rconsole']) {
+        const success = rconsoleSetting.setConfig('rconsole', data['rconsole'])
         if (success) saved = true
       }
       

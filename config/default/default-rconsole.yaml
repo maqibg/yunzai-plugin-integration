@@ -1,0 +1,6 @@
+# Rconsole 查询与趣味功能开关
+features:
+  cat: true         # #cat 吸猫
+  buyerShow: true   # #买家秀 随机图
+  cospro: true      # #累了 放松图集
+
