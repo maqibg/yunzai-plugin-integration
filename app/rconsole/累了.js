@@ -31,7 +31,7 @@ export default class RconsoleLeiLe extends plugin {
 
       if (list.length === 0) return e.reply('暂未获取到图片，请稍后再试~')
 
-      await e.reply('哪天克火掉一定是在这个群里面...')
+      await e.reply('我知道你很急 但你先别急')
       const msgs = list.map(u => [segment.image(encodeURI(u))])
       const forward = await common.makeForwardMsg(e, msgs)
       await e.reply(forward)

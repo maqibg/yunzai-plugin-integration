@@ -51,7 +51,6 @@ yunzai-plugin-integration 是一个为 Yunzai-Bot 设计的综合性插件，集
 ### 🐾 **Rconsole 查询与趣味模块**
 
 - 🐱 `#cat`：随机猫图（来源：thecatapi，合并转发多图）。
-- 🛍️ `#买家秀`：随机图片（来源：api.uomg.com，单图回复）。
 - 😮‍💨 `#累了`：放松图集（来源：imgapi.cn，合并转发多图）。
   - 锅巴可控制开关；位于 `app/rconsole/`，由 `app/rconsole.js` 动态聚合加载。
 
@@ -143,7 +142,6 @@ general:
 # rconsole.yaml
 features:
   cat: true       # #cat 吸猫
-  buyerShow: true # #买家秀
   cospro: true    # #累了
 ```
 
@@ -192,7 +190,7 @@ https://t.bilibili.com/123456789             # B站动态
 
 - **坤坤丁真功能配置**：控制娱乐功能开关
 - **Lotus解析器配置**：设置多媒体解析参数
-- **Rconsole 查询与趣味**：开启/关闭 `#cat`、`#买家秀`、`#累了`
+- **Rconsole 查询与趣味**：开启/关闭 `#cat`、`#累了`
 
 ## 📁 项目结构
 
@@ -204,7 +202,7 @@ yunzai-plugin-integration/
 │   ├── 🤖 auto-plugin.js     # 自动化功能入口
 │   ├── 🔍 cyxz.js            # 查询功能入口
 │   ├── 🐾 rconsole.js        # Rconsole 查询与趣味入口
-│   └── 📁 rconsole/          # Rconsole 子功能（cat/买家秀/累了）
+│   └── 📁 rconsole/          # Rconsole 子功能（cat/累了）
 │   └── 📁 */                 # 各模块子功能
 ├── 📁 config/                # 配置文件
 │   └── default/              # 默认配置模板（含 default-rconsole.yaml）
@@ -222,7 +220,6 @@ yunzai-plugin-integration/
 ```bash
 # 趣味/查询
 #cat
-#买家秀
 #累了
 ```
 
@@ -307,7 +304,7 @@ A: 请检查：
 - [auto-plugin](https://github.com/Nwflower/auto-plugin) by Nwflower - 提供自动化功能模块  
 - [Lotus-Plugin](https://github.com/SummerLotus520/Lotus-Plugin) by SummerLotus520 - 提供多媒体解析功能
 - [cyxz-plugin](https://github.com/xiaotian2333/cyxz-plugin) by xiaotian2333 - 提供查询功能模块
-- [rconsole-plugin](https://github.com/zhiyu1998/rconsole-plugin) by zhiyu1998 - 哔哩哔哩强化 #cat #累了 #买家秀
+- [rconsole-plugin](https://github.com/zhiyu1998/rconsole-plugin) by zhiyu1998 - 哔哩哔哩强化 #cat #累了
 
 ---
 

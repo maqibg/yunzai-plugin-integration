@@ -24,13 +24,6 @@ export const rconsoleSchema = {
               value: defaultConfig?.features?.cat
             },
             {
-              field: 'buyerShow',
-              label: '#买家秀',
-              component: 'Switch',
-              componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' },
-              value: defaultConfig?.features?.buyerShow
-            },
-            {
               field: 'cospro',
               label: '#累了',
               component: 'Switch',
