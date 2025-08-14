@@ -1,9 +1,11 @@
 import { hsDingzhenSchema } from './schemas/hs-dingzhen.js'
 import { lotusParserSchema } from './schemas/lotus-parser.js'
 import { rconsoleSchema } from './schemas/rconsole.js'
+import { tgSchema } from './schemas/tg.js'
 import hsSetting from '../model/hs/hs-setting.js'
 import lotusSetting from '../model/lotus/lotus-setting.js'
 import rconsoleSetting from '../model/rconsole/rconsole-setting.js'
+import tgSetting from '../model/tg/tg-setting.js'
 
 // 将所有 schema 导出一个统一的配置对象
 // key 即为后续在 config.yaml 中保存的键名
@@ -20,6 +22,10 @@ export const config = {
     {
       title: 'Rconsole 查询与趣味',
       ...rconsoleSchema
+    },
+    {
+      title: 'TG转发插件配置',
+      ...tgSchema
     }
   ],
   getConfigData() {
@@ -27,7 +33,8 @@ export const config = {
     return {
       'hs-kunkundinzhen': hsSetting.getConfig('hs-kunkundinzhen'),
       'lotus-parser': lotusSetting.getConfig('lotus-parser'),
-      'rconsole': rconsoleSetting.getConfig('rconsole')
+      'rconsole': rconsoleSetting.getConfig('rconsole'),
+      'tg-forwarder': tgSetting.getConfig('tg-forwarder')
     }
   },
   setConfigData(data, { Result }) {
@@ -49,6 +56,30 @@ export const config = {
       // 保存rconsole配置
       if (data['rconsole']) {
         const success = rconsoleSetting.setConfig('rconsole', data['rconsole'])
+        if (success) saved = true
+      }
+      
+      // 保存tg-forwarder配置
+      if (data['tg-forwarder']) {
+        // 处理时间单位转换
+        let tgConfig = { ...data['tg-forwarder'] }
+        
+        // 将分钟转换为毫秒
+        if (tgConfig.monitor?.interval) {
+          tgConfig.monitor.interval = tgConfig.monitor.interval * 60000
+        }
+        
+        // 将MB转换为字节
+        if (tgConfig.files?.maxSize) {
+          tgConfig.files.maxSize = tgConfig.files.maxSize * 1048576
+        }
+        
+        // 将秒转换为毫秒
+        if (tgConfig.advanced?.requestTimeout) {
+          tgConfig.advanced.requestTimeout = tgConfig.advanced.requestTimeout * 1000
+        }
+        
+        const success = tgSetting.setConfig('tg-forwarder', tgConfig)
         if (success) saved = true
       }
       

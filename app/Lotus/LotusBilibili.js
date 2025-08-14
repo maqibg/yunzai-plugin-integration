@@ -36,7 +36,7 @@ export class LotusBilibiliParser extends plugin {
                 { reg: '^#p\\s*(\\d+)$', fnc: 'handlePageSelection' }
             ]
         });
-        this.cleanupDataDir();
+        // 移除构造函数中的立即清理，改为发送完成后清理
     }
 
     cleanupDataDir() {
@@ -712,14 +712,19 @@ export class LotusBilibiliParser extends plugin {
     }
 
     async sendVideo(e, filePath, fileName) {
+        let tempDir = null;
         try {
             const stats = fs.statSync(filePath);
             const videoSize = Math.floor(stats.size / (1024 * 1024));
-        const cfg = setting.getConfig('lotus-parser');
-        if (!cfg || !cfg.bilibili) {
-            logger.error('[Lotus插件] 配置文件加载失败，请检查 lotus-parser.yaml');
-            return e.reply('配置文件加载失败，请联系管理员');
-        }
+            // 记录临时目录路径，用于后续清理
+            tempDir = path.dirname(filePath);
+            
+            const cfg = setting.getConfig('lotus-parser');
+            if (!cfg || !cfg.bilibili) {
+                logger.error('[Lotus插件] 配置文件加载失败，请检查 lotus-parser.yaml');
+                return e.reply('配置文件加载失败，请联系管理员');
+            }
+            
             if (videoSize > cfg.general.videoSizeLimit) {
                 await e.reply(`视频大小(${videoSize}MB)超过${cfg.general.videoSizeLimit}MB限制，转为上传群文件。`);
                 await this.uploadFile(e, filePath, fileName);
@@ -727,7 +732,18 @@ export class LotusBilibiliParser extends plugin {
                 await e.reply(segment.video(filePath));
             }
         } catch (err) {
+            logger.error(`[Lotus插件] 视频发送失败: ${err.message}`);
             throw err;
+        } finally {
+            // 发送完成后清理临时文件目录
+            if (tempDir && fs.existsSync(tempDir)) {
+                try {
+                    fs.rmSync(tempDir, { recursive: true, force: true });
+                    logger.info(`[Lotus插件] 已清理临时目录: ${tempDir}`);
+                } catch (cleanupErr) {
+                    logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
+                }
+            }
         }
     }
     
