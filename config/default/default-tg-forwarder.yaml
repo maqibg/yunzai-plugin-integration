@@ -29,6 +29,10 @@ files:
   maxSize: 52428800              # 最大文件大小 50MB (字节)
   tempDir: "temp/tg"             # 临时文件目录
   autoCleanup: true              # 转发后自动清理临时文件
+
+# 消息处理配置
+message:
+  filterLinks: true              # 过滤消息中的链接
   
 # 高级配置
 advanced:

@@ -729,21 +729,35 @@ export class LotusBilibiliParser extends plugin {
                 await e.reply(`视频大小(${videoSize}MB)超过${cfg.general.videoSizeLimit}MB限制，转为上传群文件。`);
                 await this.uploadFile(e, filePath, fileName);
             } else {
-                await e.reply(segment.video(filePath));
+                // 参考BBDown插件，读取文件内容而不是传递文件路径
+                const videoBuffer = fs.readFileSync(filePath);
+                await e.reply(segment.video(videoBuffer));
             }
+            
+            // 发送成功后延迟清理，给QQ上传时间
+            setTimeout(() => {
+                if (tempDir && fs.existsSync(tempDir)) {
+                    try {
+                        fs.rmSync(tempDir, { recursive: true, force: true });
+                        logger.info(`[Lotus插件] 已清理临时目录: ${tempDir}`);
+                    } catch (cleanupErr) {
+                        logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
+                    }
+                }
+            }, 60000); // 60秒后删除，给QQ足够时间上传
+            
         } catch (err) {
             logger.error(`[Lotus插件] 视频发送失败: ${err.message}`);
-            throw err;
-        } finally {
-            // 发送完成后清理临时文件目录
+            // 发送失败时立即清理
             if (tempDir && fs.existsSync(tempDir)) {
                 try {
                     fs.rmSync(tempDir, { recursive: true, force: true });
-                    logger.info(`[Lotus插件] 已清理临时目录: ${tempDir}`);
+                    logger.info(`[Lotus插件] 发送失败，已立即清理临时目录: ${tempDir}`);
                 } catch (cleanupErr) {
                     logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
                 }
             }
+            throw err;
         }
     }
     

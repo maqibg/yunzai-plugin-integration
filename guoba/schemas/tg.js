@@ -156,6 +156,27 @@ export const tgSchema = {
         }
       },
       {
+        field: 'message',
+        label: '消息处理',
+        component: 'GSubForm',
+        componentProps: {
+          multiple: false,
+          schemas: [
+            {
+              field: 'filterLinks',
+              label: '过滤消息中的链接',
+              component: 'Switch',
+              componentProps: {
+                checkedChildren: '开启',
+                unCheckedChildren: '关闭'
+              },
+              value: defaultConfig?.message?.filterLinks !== false,
+              help: '开启后将自动删除转发消息中的所有链接'
+            }
+          ]
+        }
+      },
+      {
         field: 'advanced',
         label: '高级设置',
         component: 'GSubForm',

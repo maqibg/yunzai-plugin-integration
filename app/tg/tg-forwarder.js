@@ -214,7 +214,19 @@ export class TgForwarder extends plugin {
         if (post.text || post.caption) {
           const text = post.text || post.caption || '';
           if (text.trim()) {
-            messageContent.push(text);
+            const config = setting.getConfig('tg-forwarder');
+            
+            // 根据配置决定是否过滤链接
+            let processedText = text;
+            if (config.message?.filterLinks) {
+              processedText = this.filterLinks(text);
+              logger.debug(`[TG转发] 原文本: ${text.substring(0, 50)}...`);
+              logger.debug(`[TG转发] 过滤后: ${processedText.substring(0, 50)}...`);
+            }
+            
+            if (processedText.trim()) {
+              messageContent.push(processedText);
+            }
           }
         }
         
@@ -436,6 +448,50 @@ export class TgForwarder extends plugin {
     } catch (error) {
       logger.error('[TG转发] 创建临时目录失败:', error);
     }
+  }
+
+  // 过滤文本中的链接
+  filterLinks(text) {
+    if (!text) return '';
+    
+    // 定义各种链接的正则表达式
+    const linkPatterns = [
+      // HTTP/HTTPS 链接
+      /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi,
+      
+      // FTP 链接
+      /ftp:\/\/[^\s<>"{}|\\^`\[\]]+/gi,
+      
+      // 邮箱链接
+      /mailto:[^\s<>"{}|\\^`\[\]]+/gi,
+      
+      // Telegram 链接
+      /t\.me\/[^\s<>"{}|\\^`\[\]]+/gi,
+      
+      // 简化的 www 链接
+      /www\.[^\s<>"{}|\\^`\[\]]+/gi,
+      
+      // 其他协议链接
+      /[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s<>"{}|\\^`\[\]]+/gi,
+      
+      // 纯域名形式 (包含至少一个点)
+      /(?:^|[\s\n])([a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?(?=[\s\n]|$)/gi
+    ];
+    
+    let filteredText = text;
+    
+    // 逐个应用过滤规则
+    linkPatterns.forEach(pattern => {
+      filteredText = filteredText.replace(pattern, '');
+    });
+    
+    // 清理多余的空白字符
+    filteredText = filteredText
+      .replace(/\s+/g, ' ')  // 多个空格合并为一个
+      .replace(/\n\s*\n/g, '\n')  // 多个换行合并
+      .trim();
+    
+    return filteredText;
   }
 
   // 插件销毁时清理
