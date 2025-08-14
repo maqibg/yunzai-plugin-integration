@@ -160,7 +160,7 @@ export class LotusBilibiliParser extends plugin {
                 const sizeText = `预估大小: ${estimatedSize}MB，超过 ${cfg.bilibili.fileSizeLimit}MB 限制`;
                 const config = setting.getConfig('lotus-parser');
                 return e.reply([
-                    `${config?.general?.identifyPrefix || '[Lotus解析]'} ${videoInfo.title}`,
+                    `${videoInfo.title}`,
                     `\n📺 UP主: ${videoInfo.owner.name}`,
                     `\n⏰ 时长: ${Math.floor(videoInfo.duration / 60)}:${(videoInfo.duration % 60).toString().padStart(2, '0')}`,
                     `\n👀 播放: ${this.formatNumber(videoInfo.stat.view)} | 👍 点赞: ${this.formatNumber(videoInfo.stat.like)}`,
@@ -233,7 +233,7 @@ export class LotusBilibiliParser extends plugin {
         const config = setting.getConfig('lotus-parser');
         const liveMessage = [
             segment.image(user_cover),
-            `${config?.general?.identifyPrefix || '[Lotus插件]'} B站直播: ${title}\n📺 独立播放器: https://www.bilibili.com/blackboard/live/live-activity-player.html?enterTheRoom=0&cid=${roomId}`
+            `B站直播: ${title}\n📺 独立播放器: https://www.bilibili.com/blackboard/live/live-activity-player.html?enterTheRoom=0&cid=${roomId}`
         ];
         await e.reply(liveMessage);
     }
@@ -388,7 +388,7 @@ export class LotusBilibiliParser extends plugin {
         const b = cfg?.bilibili || {};
         const lines = [];
         // 标题
-        lines.push(`${cfg?.general?.identifyPrefix || '[Lotus解析]'} ${title}`);
+        lines.push(`${title}`);
         if (partTitle) lines.push(`P: ${partTitle}`);
         // 基本信息
         if (b.displayInfo !== false) {
@@ -729,9 +729,15 @@ export class LotusBilibiliParser extends plugin {
                 await e.reply(`视频大小(${videoSize}MB)超过${cfg.general.videoSizeLimit}MB限制，转为上传群文件。`);
                 await this.uploadFile(e, filePath, fileName);
             } else {
-                // 参考BBDown插件，读取文件内容而不是传递文件路径
-                const videoBuffer = fs.readFileSync(filePath);
-                await e.reply(segment.video(videoBuffer));
+                // 对于大文件（>50MB），直接使用文件路径避免内存问题
+                if (videoSize > 50) {
+                    logger.warn(`[Lotus插件] 大文件(${videoSize}MB)使用文件路径传输`);
+                    await e.reply(segment.video(filePath));
+                } else {
+                    // 小文件使用Buffer确保传输稳定性
+                    const videoBuffer = fs.readFileSync(filePath);
+                    await e.reply(segment.video(videoBuffer));
+                }
             }
             
             // 发送成功后延迟清理，给QQ上传时间
@@ -744,7 +750,7 @@ export class LotusBilibiliParser extends plugin {
                         logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
                     }
                 }
-            }, 60000); // 60秒后删除，给QQ足够时间上传
+            }, 300000); // 大文件需要更长时间，改为5分钟
             
         } catch (err) {
             logger.error(`[Lotus插件] 视频发送失败: ${err.message}`);
