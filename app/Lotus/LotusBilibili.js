@@ -33,7 +33,7 @@ export class LotusBilibiliParser extends plugin {
                     fnc: 'parse'
                 },
                 { reg: '^#B站登录$', fnc: 'login', permission: 'master' },
-                { reg: '^#p\\s*(all|\\d+)$', fnc: 'handlePageSelection' }
+                { reg: '^#p\\s*(\\d+)$', fnc: 'handlePageSelection' }
             ]
         });
         this.cleanupDataDir();
@@ -81,7 +81,7 @@ export class LotusBilibiliParser extends plugin {
                 await redis.set(redisKey, JSON.stringify({ url: normalizedUrl, videoInfo }), { EX: 300 });
 
                 await e.reply(this.constructInfoMessage(videoInfo, null, true));
-                await e.reply("这是一个视频合集，请在5分钟内回复 `#p[序号]` 或 `#p all` 进行下载。");
+                await e.reply("这是一个视频合集，请在5分钟内回复 `#p[序号]` 进行下载。");
 
             } else {
                 await this.handleSinglePageVideo(e, normalizedUrl, videoInfo);
@@ -108,11 +108,6 @@ export class LotusBilibiliParser extends plugin {
         const tempPath = path.join(dataDir, `${e.group_id || e.user_id}_${Date.now()}`);
 
         try {
-            if (selection === 'all') {
-                await this.handleMergeAllPages(e, url, videoInfo, tempPath);
-                return;
-            }
-
             const pageNum = parseInt(selection);
             if (isNaN(pageNum)) return;
 
@@ -195,88 +190,6 @@ export class LotusBilibiliParser extends plugin {
         }
     }
     
-    async handleMergeAllPages(e, url, videoInfo, tempPath) {
-        await e.reply("已识别到合并全部P数指令，开始下载所有分P，过程可能需要数分钟，请耐心等待...");
-        await fs.promises.mkdir(tempPath, { recursive: true });
-
-        // 运行 BBDown 下载所有分P
-        await this.runBBDown(url, tempPath);
-
-        // 兼容：BBDown 可能先以纯数字临时目录命名，完成后重命名为“视频标题”
-        const dirents = (() => {
-            try { return fs.readdirSync(tempPath, { withFileTypes: true }); } catch { return []; }
-        })();
-        // 查找包含视频文件的目录；若多于一个，按最近修改时间挑选
-        const candidateDirs = dirents.filter(d => d.isDirectory()).map(d => path.join(tempPath, d.name));
-        const hasVideo = (dir) => {
-            try {
-                const list = fs.readdirSync(dir);
-                return list.some(n => /\.(mp4|mkv)$/i.test(n));
-            } catch { return false; }
-        };
-        let workDir = candidateDirs.find(hasVideo);
-        if (!workDir) {
-            // 可能在更深层，或重命名尚未发生，递归搜寻
-            const allDirs = [];
-            const walkDirs = (d) => {
-                let l = [];
-                try { l = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-                for (const ent of l) {
-                    if (ent.isDirectory()) {
-                        const p = path.join(d, ent.name);
-                        allDirs.push(p);
-                        walkDirs(p);
-                    }
-                }
-            };
-            walkDirs(tempPath);
-            workDir = allDirs.find(hasVideo) || tempPath;
-        }
-
-        // 收集全部视频文件（递归）
-        const files = [];
-        const walkFiles = (d) => {
-            let l = [];
-            try { l = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-            for (const ent of l) {
-                const p = path.join(d, ent.name);
-                if (ent.isDirectory()) walkFiles(p);
-                else if (/\.(mp4|mkv)$/i.test(ent.name)) files.push(p);
-            }
-        };
-        walkFiles(workDir);
-        if (files.length === 0) {
-            throw new Error(`在下载目录未找到任何视频文件：${workDir}`);
-        }
-
-        // 排序：优先根据文件名中的 [P<number>]，否则自然排序
-        const pIndex = (name) => {
-            // 适配 ASCII 方括号 [P1] 与全角括号 【P1】 的命名
-            const m = name.match(/(?:\[|【)\s*P\s*(\d+)(?:\]|】)/i);
-            return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
-        };
-        files.sort((a, b) => {
-            const pa = pIndex(path.basename(a));
-            const pb = pIndex(path.basename(b));
-            if (pa !== pb) return pa - pb;
-            return path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true });
-        });
-
-        await e.reply(`所有分P下载完成，共${files.length}个文件，开始合并...`);
-
-        // 生成 ffmpeg concat 列表
-        const filelistPath = path.join(tempPath, 'filelist.txt');
-        const esc = (p) => p.replace(/'/g, "'\\''");
-        const filelistContent = files.map(f => `file '${esc(f)}'`).join('\n');
-        fs.writeFileSync(filelistPath, filelistContent);
-
-        // 合并输出
-        const outputFile = path.join(tempPath, `${videoInfo.bvid}.mp4`);
-        await this.mergeFilesWithFfmpeg(filelistPath, outputFile);
-
-        await e.reply("视频合并完成，正在发送...");
-        await this.sendVideo(e, outputFile, `${videoInfo.bvid}.mp4`);
-    }
 
     async downloadSingleWithBBDown(e, url, tempPath, videoInfo, pageNum = null) {
         await this.runBBDown(url, tempPath, pageNum, `-F ${videoInfo.bvid}`);
