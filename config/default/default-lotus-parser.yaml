@@ -7,8 +7,6 @@ bilibili:
   # 启用后，可解析会员内容，且更可靠。
   useBBDown: true
   
-  # [BBDown专属] 使用BBDown时，是否调用aria2c进行加速 (需要服务器已安装aria2c)。
-  useAria2: true
   
   # [核心配置] 默认下载画质。对BBDown和API模式都有效。
   # 120: 4K, 116: 1080P60, 112: 1080P高码率, 80: 1080P, 74: 720P60, 64: 720P, 32: 480P, 16: 360P

@@ -897,7 +897,6 @@ export class LotusBilibiliParser extends plugin {
         };
         const dfnPriority = resolutionMap[cfg.bilibili.resolution] || String(cfg.bilibili.resolution);
         const args = [url];
-        if (cfg.bilibili.useAria2) args.push('--use-aria2c');
         
         const { sessdata, source } = await this.getSessData();
         if (source === 'config' && sessdata) {
