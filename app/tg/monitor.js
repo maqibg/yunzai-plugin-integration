@@ -887,19 +887,23 @@ async function smartManualPull(e) {
   }
   
   try {
-    // 3. 执行短轮询，收集到当前大循环
+    // 3. 清空之前的大循环缓存，避免重复发送
+    logger.info(`[TG] 手动拉取，清空之前的缓存`)
+    schedulerState.collectedTargets.clear()
+    
+    // 4. 执行短轮询，收集新消息
     logger.info(`[TG] 手动拉取，当前大循环已完成 ${schedulerState.currentCycle}/${schedulerState.totalCycles} 个小循环`)
     await collectUpdates(e, { timeout: 2 })
     
-    // 4. 立即发送所有收集的消息（包括之前大循环的）
+    // 5. 立即发送收集的新消息
     await sendCollectedMessages()
     
-    // 5. 重置大循环计数
+    // 6. 重置大循环计数
     schedulerState.currentCycle = 0
     logger.info('[TG] 手动拉取完成，大循环计数已重置')
     
   } finally {
-    // 6. 1秒后重启自动轮询
+    // 7. 1秒后重启自动轮询
     setTimeout(() => {
       startAutoPolling()
     }, 1000)
