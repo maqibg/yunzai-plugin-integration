@@ -251,19 +251,11 @@ async function sendForwardToTarget(eCtx, target, list) {
     // 完全按照yuki-plugin的方式构建forwardNodes
     const forwardNodes = []
     
-    // 添加标题节点
-    forwardNodes.push({
-      nickname: '云崽TG',
-      user_id: String(80000000),  // 使用固定虚拟ID，字符串格式
-      message: ['有新的TG消息了~'],
-      time: Date.now()
-    })
-    
     // 添加实际消息节点
     for (let item of validList) {
       forwardNodes.push({
-        nickname: 'TG消息',
-        user_id: String(80000000),  // 同样的虚拟ID
+        nickname: '瘤萎',
+        user_id: String(80000000),  // 使用固定虚拟ID，字符串格式
         message: item,              // 保持数组格式
         time: Date.now()
       })
