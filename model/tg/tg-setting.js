@@ -6,10 +6,13 @@ import chokidar from 'chokidar'
 const _path = process.cwd()
 const pluginRoot = path.join(_path, 'plugins', 'yunzai-plugin-integration')
 
+// 如果不在yunzai环境中，使用当前目录
+const actualRoot = fs.existsSync(pluginRoot) ? pluginRoot : path.resolve('.')
+
 class TgSetting {
   constructor() {
-    this.defPath = path.join(pluginRoot, 'config', 'default')
-    this.configPath = path.join(pluginRoot, 'config')
+    this.defPath = path.join(actualRoot, 'config', 'default')
+    this.configPath = path.join(actualRoot, 'config')
 
     this.config = {}
     this.def = {}
@@ -170,7 +173,11 @@ class TgSetting {
         errors.push('Telegram Bot Token 未配置')
       }
       
-      if (!config.telegram?.channels || config.telegram.channels.length === 0) {
+      const allChannels = [
+        ...(config.telegram?.channels || []),
+        ...(config.telegram?.channelsId || [])
+      ]
+      if (allChannels.length === 0) {
         errors.push('监控频道列表为空')
       }
       
@@ -185,6 +192,15 @@ class TgSetting {
       
       if (config.files?.maxSize && config.files.maxSize > 52428800) {
         errors.push('文件大小限制不能超过50MB')
+      }
+      
+      // 验证新的配置字段
+      if (config.advanced?.pollTimeout && (config.advanced.pollTimeout < 5 || config.advanced.pollTimeout > 50)) {
+        errors.push('长轮询超时时间应在5-50秒范围内')
+      }
+      
+      if (config.message?.sendInterval && config.message.sendInterval < 1) {
+        errors.push('发送间隔不能少于1秒')
       }
     }
 

@@ -29,14 +29,27 @@ export const tgSchema = {
             },
             {
               field: 'channels',
-              label: '监控频道',
+              label: '监控频道(用户名)',
               component: 'Select',
               componentProps: {
                 mode: 'tags',
                 placeholder: '输入频道用户名，如: @channelname',
                 allowClear: true
               },
-              value: defaultConfig?.telegram?.channels || []
+              value: defaultConfig?.telegram?.channels || [],
+              help: '公开频道使用@用户名格式'
+            },
+            {
+              field: 'channelsId',
+              label: '监控频道(Chat ID)',
+              component: 'Select',
+              componentProps: {
+                mode: 'tags',
+                placeholder: '输入频道Chat ID，如: -1001234567890',
+                allowClear: true
+              },
+              value: defaultConfig?.telegram?.channelsId || [],
+              help: '私有频道或需要精确匹配时使用Chat ID'
             }
           ]
         }
@@ -151,6 +164,17 @@ export const tgSchema = {
                 unCheckedChildren: '关闭'
               },
               value: defaultConfig?.files?.autoCleanup !== false
+            },
+            {
+              field: 'sendLargeAsLink',
+              label: '大文件链接模式',
+              component: 'Switch',
+              componentProps: {
+                checkedChildren: '开启',
+                unCheckedChildren: '关闭'
+              },
+              value: defaultConfig?.files?.sendLargeAsLink || false,
+              help: '开启后超过大小限制的文件将以链接形式发送'
             }
           ]
         }
@@ -172,6 +196,40 @@ export const tgSchema = {
               },
               value: defaultConfig?.message?.filterLinks !== false,
               help: '开启后将自动删除转发消息中的所有链接'
+            },
+            {
+              field: 'sendInterval',
+              label: '发送间隔(秒)',
+              component: 'InputNumber',
+              componentProps: {
+                min: 1,
+                max: 60,
+                placeholder: '多群转发时的发送间隔'
+              },
+              value: defaultConfig?.message?.sendInterval || 1,
+              help: '避免发送过快被限制'
+            },
+            {
+              field: 'retryOnFailure',
+              label: '失败时重试',
+              component: 'Switch',
+              componentProps: {
+                checkedChildren: '开启',
+                unCheckedChildren: '关闭'
+              },
+              value: defaultConfig?.message?.retryOnFailure !== false,
+              help: '发送失败时自动重试一次'
+            },
+            {
+              field: 'template',
+              label: '消息模板',
+              component: 'Input.TextArea',
+              componentProps: {
+                placeholder: '自定义消息格式模板，留空使用默认格式',
+                autoSize: { minRows: 2, maxRows: 4 }
+              },
+              value: defaultConfig?.message?.template || '',
+              help: '支持变量：{time}、{channel}、{content}'
             }
           ]
         }
@@ -183,6 +241,29 @@ export const tgSchema = {
         componentProps: {
           multiple: false,
           schemas: [
+            {
+              field: 'useLongPolling',
+              label: '长轮询模式',
+              component: 'Switch',
+              componentProps: {
+                checkedChildren: '开启',
+                unCheckedChildren: '关闭'
+              },
+              value: defaultConfig?.advanced?.useLongPolling !== false,
+              help: '开启长轮询可减少API调用次数'
+            },
+            {
+              field: 'pollTimeout',
+              label: '轮询超时(秒)',
+              component: 'InputNumber',
+              componentProps: {
+                min: 5,
+                max: 50,
+                placeholder: '长轮询超时时间'
+              },
+              value: defaultConfig?.advanced?.pollTimeout || 30,
+              help: '长轮询等待新消息的最大时间'
+            },
             {
               field: 'requestTimeout',
               label: '请求超时(秒)',
@@ -204,6 +285,18 @@ export const tgSchema = {
                 placeholder: '请求失败重试次数'
               },
               value: defaultConfig?.advanced?.retryCount || 3
+            },
+            {
+              field: 'retryDelay',
+              label: '重试延迟(秒)',
+              component: 'InputNumber',
+              componentProps: {
+                min: 1,
+                max: 60,
+                placeholder: '重试前等待时间'
+              },
+              value: Math.floor((defaultConfig?.advanced?.retryDelay || 5000) / 1000),
+              help: '使用指数退避算法，实际延迟会逐次增加'
             }
           ]
         }

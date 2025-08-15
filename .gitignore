@@ -20,6 +20,7 @@ data/
 logs/
 temp/
 
+
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -44,4 +45,8 @@ config/*.yaml
 *.backup
 *.bak
 *.old
+
 CLAUDE.md
+.claude/
+.claude
+AGENTS.md
