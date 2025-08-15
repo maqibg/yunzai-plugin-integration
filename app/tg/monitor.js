@@ -251,32 +251,37 @@ async function sendForwardToTarget(eCtx, target, list) {
     // 构造转发消息格式，参考指令表的实现
     let forwardMessages = []
     for (let item of validList) {
+      // 将数组内容合并为单个消息，参考指令表的格式
       forwardMessages.push({
-        message: item,
+        message: item, // 直接使用数组，让Bot.makeForwardMsg处理
         nickname: Bot.nickname || '云崽',
-        user_id: Bot.uin || target.id
+        user_id: Bot.uin
       })
     }
     
-    // 使用Bot.makeForwardMsg而不是common.makeForwardMsg
+    // 使用Bot.makeForwardMsg
     const forward = await Bot.makeForwardMsg(forwardMessages)
     
-    let result
-    if (target.type === 'group') {
-      const g = Bot.pickGroup(target.id)
-      if (!g) {
-        throw new Error(`群 ${target.id} 不存在或无法访问`)
-      }
-      result = await g.sendMsg(forward)
+    // 关键修改：使用事件上下文发送，而不是直接pickGroup
+    if (eCtx && typeof eCtx.reply === 'function') {
+      // 有事件上下文时，直接通过上下文发送
+      return await eCtx.reply(forward, false, {recallMsg: 0})
     } else {
-      const u = Bot.pickUser(target.id)
-      if (!u) {
-        throw new Error(`用户 ${target.id} 不存在或无法访问`)
+      // 没有事件上下文时，构造最小化的发送方式
+      if (target.type === 'group') {
+        const g = Bot.pickGroup(target.id)
+        if (!g) {
+          throw new Error(`群 ${target.id} 不存在或无法访问`)
+        }
+        return await g.sendMsg(forward)
+      } else {
+        const u = Bot.pickUser(target.id)
+        if (!u) {
+          throw new Error(`用户 ${target.id} 不存在或无法访问`)
+        }
+        return await u.sendMsg(forward)
       }
-      result = await u.sendMsg(forward)
     }
-    
-    return result
     
   } catch (error) {
     // 详细的错误信息
