@@ -232,13 +232,60 @@ async function handleAudio(token, proxy, baseDir, post, agents, maxBytes) {
 
 // 组装并发送合并转发到目标；目标 target: { type: 'group'|'user', id: number }
 async function sendForwardToTarget(eCtx, target, list) {
-  const forward = await common.makeForwardMsg(eCtx, list)
-  if (target.type === 'group') {
-    const g = Bot.pickGroup(target.id)
-    return await g.sendMsg(forward)
-  } else {
-    const u = Bot.pickUser(target.id)
-    return await u.sendMsg(forward)
+  try {
+    // 验证转发内容
+    if (!list || list.length === 0) {
+      logger.warn('[TG] 转发列表为空，跳过发送')
+      return null
+    }
+    
+    // 过滤空节点
+    const validList = list.filter(item => item && Array.isArray(item) && item.length > 0)
+    if (validList.length === 0) {
+      logger.warn('[TG] 没有有效的转发内容，跳过发送')
+      return null
+    }
+    
+    logger.debug(`[TG] 准备转发 ${validList.length} 条消息到 ${target.type}:${target.id}`)
+    
+    // 构造转发消息格式，参考指令表的实现
+    let forwardMessages = []
+    for (let item of validList) {
+      forwardMessages.push({
+        message: item,
+        nickname: Bot.nickname || '云崽',
+        user_id: Bot.uin || target.id
+      })
+    }
+    
+    // 使用Bot.makeForwardMsg而不是common.makeForwardMsg
+    const forward = await Bot.makeForwardMsg(forwardMessages)
+    
+    let result
+    if (target.type === 'group') {
+      const g = Bot.pickGroup(target.id)
+      if (!g) {
+        throw new Error(`群 ${target.id} 不存在或无法访问`)
+      }
+      result = await g.sendMsg(forward)
+    } else {
+      const u = Bot.pickUser(target.id)
+      if (!u) {
+        throw new Error(`用户 ${target.id} 不存在或无法访问`)
+      }
+      result = await u.sendMsg(forward)
+    }
+    
+    return result
+    
+  } catch (error) {
+    // 详细的错误信息
+    logger.error(`[TG] 转发到 ${target.type}:${target.id} 失败`)
+    logger.error(`[TG] 错误详情: ${error.message}`)
+    if (error.stack) {
+      logger.debug(`[TG] 错误堆栈: ${error.stack}`)
+    }
+    throw error
   }
 }
 
@@ -953,11 +1000,12 @@ export default class TgMonitor extends plugin {
   constructor() {
     super({
       name: 'TG 监听与转发',
-      dsc: '#tg拉取 从 TG 拉取消息并转发到 QQ',
+      dsc: '#tg拉取 或 #拉取tg 从 TG 拉取消息并转发到 QQ',
       event: 'message',
       priority: 500,
       rule: [
-        { reg: '^#tg拉取$', fnc: 'manualPull' }
+        { reg: '^#tg拉取$', fnc: 'manualPull' },
+        { reg: '^#拉取tg$', fnc: 'manualPull' }
       ]
     })
   }
