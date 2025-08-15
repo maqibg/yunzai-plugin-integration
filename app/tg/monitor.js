@@ -248,39 +248,43 @@ async function sendForwardToTarget(eCtx, target, list) {
     
     logger.debug(`[TG] 准备转发 ${validList.length} 条消息到 ${target.type}:${target.id}`)
     
-    // 构造转发消息格式，参考指令表的实现
-    let forwardMessages = []
+    // 完全按照yuki-plugin的方式构建forwardNodes
+    const forwardNodes = []
+    
+    // 添加标题节点
+    forwardNodes.push({
+      nickname: '云崽TG',
+      user_id: String(80000000),  // 使用固定虚拟ID，字符串格式
+      message: ['有新的TG消息了~'],
+      time: Date.now()
+    })
+    
+    // 添加实际消息节点
     for (let item of validList) {
-      // 将数组内容合并为单个消息，参考指令表的格式
-      forwardMessages.push({
-        message: item, // 直接使用数组，让Bot.makeForwardMsg处理
-        nickname: Bot.nickname || '云崽',
-        user_id: Bot.uin
+      forwardNodes.push({
+        nickname: 'TG消息',
+        user_id: String(80000000),  // 同样的虚拟ID
+        message: item,              // 保持数组格式
+        time: Date.now()
       })
     }
     
-    // 使用Bot.makeForwardMsg
-    const forward = await Bot.makeForwardMsg(forwardMessages)
+    // 使用Bot.makeForwardMsg，如yuki-plugin
+    const forwardMsg = await Bot.makeForwardMsg(forwardNodes)
     
-    // 关键修改：使用事件上下文发送，而不是直接pickGroup
-    if (eCtx && typeof eCtx.reply === 'function') {
-      // 有事件上下文时，直接通过上下文发送
-      return await eCtx.reply(forward, false, {recallMsg: 0})
-    } else {
-      // 没有事件上下文时，构造最小化的发送方式
-      if (target.type === 'group') {
-        const g = Bot.pickGroup(target.id)
-        if (!g) {
-          throw new Error(`群 ${target.id} 不存在或无法访问`)
-        }
-        return await g.sendMsg(forward)
-      } else {
-        const u = Bot.pickUser(target.id)
-        if (!u) {
-          throw new Error(`用户 ${target.id} 不存在或无法访问`)
-        }
-        return await u.sendMsg(forward)
+    // 发送转发消息
+    if (target.type === 'group') {
+      const g = Bot.pickGroup(target.id)
+      if (!g) {
+        throw new Error(`群 ${target.id} 不存在或无法访问`)
       }
+      return await g.sendMsg(forwardMsg)
+    } else {
+      const u = Bot.pickUser(target.id)
+      if (!u) {
+        throw new Error(`用户 ${target.id} 不存在或无法访问`)
+      }
+      return await u.sendMsg(forwardMsg)
     }
     
   } catch (error) {
