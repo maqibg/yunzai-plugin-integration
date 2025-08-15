@@ -35,16 +35,16 @@ export class TgForwarder extends plugin {
     this.successCount = 0;
     this.errorCount = 0;
     
-    // 去重窗口
-    this.dedupWindow = new Map(); // messageId -> timestamp
-    this.maxDedupSize = 1000; // 最大去重窗口大小
-    this.dedupTtl = 30 * 60 * 1000; // TTL 30分钟
+    // 优化的去重方案：主要依赖offset，辅助短期去重
+    this.recentMessages = new Set(); // 仅保存最近的消息标识
+    this.maxRecentMessages = 100;    // 最多保存100条最近消息
+    this.dedupCleanupInterval = null;
     
     // 确保临时目录存在
     this.ensureTempDir();
     
-    // 启动去重窗口清理定时器
-    this.startDedupCleanup();
+    // 启动轻量级去重清理（可选，主要依赖offset机制）
+    this.startRecentMessageCleanup();
     
     // 启动时自动开始监控
     this.startMonitoring();
@@ -74,52 +74,48 @@ export class TgForwarder extends plugin {
     return true;
   }
 
-  // 去重窗口管理
-  startDedupCleanup() {
-    // 每5分钟清理一次过期的去重记录
+  // 轻量级去重管理（主要作为offset机制的补充）
+  startRecentMessageCleanup() {
+    // 定期清理最近消息Set，保持大小限制
     this.dedupCleanupInterval = setInterval(() => {
-      this.cleanupDedupWindow();
-    }, 5 * 60 * 1000);
-  }
-
-  cleanupDedupWindow() {
-    const now = Date.now();
-    let cleanedCount = 0;
-    
-    for (const [messageId, timestamp] of this.dedupWindow.entries()) {
-      if (now - timestamp > this.dedupTtl) {
-        this.dedupWindow.delete(messageId);
-        cleanedCount++;
+      if (this.recentMessages.size > this.maxRecentMessages) {
+        // 转换为数组，删除旧的一半
+        const messages = Array.from(this.recentMessages);
+        const keepCount = Math.floor(this.maxRecentMessages / 2);
+        this.recentMessages.clear();
+        
+        // 保留较新的消息（假设新消息在后面添加）
+        messages.slice(-keepCount).forEach(msg => {
+          this.recentMessages.add(msg);
+        });
+        
+        logger.debug(`[TG转发] 清理最近消息缓存: 保留 ${this.recentMessages.size} 条`);
       }
-    }
-    
-    // 如果还是太大，删除最老的记录
-    if (this.dedupWindow.size > this.maxDedupSize) {
-      const entries = Array.from(this.dedupWindow.entries())
-        .sort((a, b) => a[1] - b[1]); // 按时间戳排序
-      
-      const toDelete = entries.slice(0, this.dedupWindow.size - this.maxDedupSize);
-      toDelete.forEach(([messageId]) => {
-        this.dedupWindow.delete(messageId);
-        cleanedCount++;
-      });
-    }
-    
-    if (cleanedCount > 0) {
-      logger.debug(`[TG转发] 清理去重窗口: 删除 ${cleanedCount} 条记录，当前大小: ${this.dedupWindow.size}`);
-    }
+    }, 10 * 60 * 1000); // 每10分钟检查一次
   }
 
   isDuplicateMessage(messageId, chatId) {
+    // 主要依赖Telegram的offset机制，这里只做短期辅助去重
     const key = `${chatId}_${messageId}`;
     
-    if (this.dedupWindow.has(key)) {
-      logger.debug(`[TG转发] 发现重复消息: ${key}`);
+    if (this.recentMessages.has(key)) {
+      logger.warn(`[TG转发] 发现短期重复消息，已跳过: ${key}`);
       return true;
     }
     
-    // 添加到去重窗口
-    this.dedupWindow.set(key, Date.now());
+    // 添加到最近消息集合
+    this.recentMessages.add(key);
+    
+    // 如果超过限制，删除一些旧消息（Set没有内置LRU，简单处理）
+    if (this.recentMessages.size > this.maxRecentMessages * 1.2) {
+      const messages = Array.from(this.recentMessages);
+      this.recentMessages.clear();
+      messages.slice(-this.maxRecentMessages).forEach(msg => {
+        this.recentMessages.add(msg);
+      });
+    }
+    
+    logger.debug(`[TG转发] 新消息: ${key} (缓存: ${this.recentMessages.size})`);
     return false;
   }
 
@@ -147,7 +143,7 @@ export class TgForwarder extends plugin {
       `耗时: ${this.lastFetchDuration}ms`,
       `成功次数: ${this.successCount}`,
       `失败次数: ${this.errorCount}`,
-      `去重窗口: ${this.dedupWindow.size}/${this.maxDedupSize}`
+      `去重缓存: ${this.recentMessages.size}/${this.maxRecentMessages}`
     ].join('\n');
     
     return e.reply(statusInfo);
@@ -258,8 +254,11 @@ export class TgForwarder extends plugin {
       if (filteredUpdates.length === 0) {
         logger.debug('[TG转发] 无匹配频道的消息');
         // 仍需更新lastUpdateId以避免重复处理
-        const maxUpdateId = Math.max(...updates.map(u => u.update_id));
-        this.saveLastUpdateId(maxUpdateId);
+        if (updates.length > 0) {
+          const maxUpdateId = Math.max(...updates.map(u => u.update_id));
+          this.saveLastUpdateId(maxUpdateId);
+          logger.debug(`[TG转发] 更新偏移ID: ${maxUpdateId} (无匹配消息)`);
+        }
         return { count: 0 };
       }
       
@@ -270,9 +269,12 @@ export class TgForwarder extends plugin {
         logger.info(`[TG转发] 成功转发 ${messages.length} 条消息`);
       }
       
-      // 更新最后处理的消息ID
-      const maxUpdateId = Math.max(...updates.map(u => u.update_id));
-      this.saveLastUpdateId(maxUpdateId);
+      // 更新最后处理的消息ID - 使用全部updates而不是filteredUpdates
+      if (updates.length > 0) {
+        const maxUpdateId = Math.max(...updates.map(u => u.update_id));
+        this.saveLastUpdateId(maxUpdateId);
+        logger.debug(`[TG转发] 更新偏移ID: ${maxUpdateId}`);
+      }
       
       return { count: messages.length };
       
@@ -298,6 +300,8 @@ export class TgForwarder extends plugin {
       timeout: Math.floor((config.advanced?.pollTimeout || 30) * 0.9), // 略小于配置超时时间
       allowed_updates: JSON.stringify(['channel_post'])
     });
+    
+    logger.debug(`[TG转发] 长轮询参数: offset=${this.lastUpdateId + 1}, timeout=${Math.floor((config.advanced?.pollTimeout || 30) * 0.9)}`);
     
     const response = await this.tgApiRequest(`${url}?${params}`, {
       method: 'GET',
@@ -425,7 +429,12 @@ export class TgForwarder extends plugin {
           if (downloadResult) {
             if (typeof downloadResult === 'string') {
               // 普通文件路径
-              messageContent.push(segment.image(downloadResult));
+              if (typeof segment !== 'undefined' && segment.image) {
+                messageContent.push(segment.image(downloadResult));
+              } else {
+                logger.error('[TG转发] segment.image 不可用，无法处理图片');
+                messageContent.push(`🖼️ 图片: ${path.basename(downloadResult)}`);
+              }
             } else if (downloadResult.type === 'link') {
               // 大文件链接模式
               messageContent.push(`🖼️ 图片文件过大: ${downloadResult.fileName} (${Math.round(downloadResult.size/1024/1024)}MB)`);
@@ -441,7 +450,12 @@ export class TgForwarder extends plugin {
           if (downloadResult) {
             if (typeof downloadResult === 'string') {
               // 普通文件路径
-              messageContent.push(segment.video(downloadResult));
+              if (typeof segment !== 'undefined' && segment.video) {
+                messageContent.push(segment.video(downloadResult));
+              } else {
+                logger.error('[TG转发] segment.video 不可用，无法处理视频');
+                messageContent.push(`🎥 视频: ${path.basename(downloadResult)}`);
+              }
             } else if (downloadResult.type === 'link') {
               // 大文件链接模式
               messageContent.push(`🎥 视频文件过大: ${downloadResult.fileName} (${Math.round(downloadResult.size/1024/1024)}MB)`);
@@ -516,10 +530,12 @@ export class TgForwarder extends plugin {
         return null;
       }
       
-      const fileUrl = `https://api.telegram.org/bot${config.telegram.botToken}/${fileInfo.file_path}`;
+      const fileUrl = `https://api.telegram.org/file/bot${config.telegram.botToken}/${fileInfo.file_path}`;
       const fileName = this.generateFileName(fileInfo, type);
       const tempDir = config.files?.tempDir || 'temp/tg';
       const fullTempDir = path.join(pluginRoot, tempDir);
+      
+      logger.debug(`[TG转发] 准备下载文件: ${fileUrl}`);
       
       // 确保目录存在
       if (!fs.existsSync(fullTempDir)) {
@@ -531,6 +547,7 @@ export class TgForwarder extends plugin {
       // 流式下载
       await this.streamDownload(fileUrl, filePath, maxSize, config);
       
+      logger.debug(`[TG转发] 文件下载完成: ${filePath}`);
       return filePath;
       
     } catch (error) {
@@ -547,6 +564,8 @@ export class TgForwarder extends plugin {
       const url = `https://api.telegram.org/bot${botToken}/getFile`;
       const params = new URLSearchParams({ file_id: fileId });
       
+      logger.debug(`[TG转发] 获取文件信息: ${fileId}`);
+      
       const response = await this.tgApiRequest(`${url}?${params}`, {
         method: 'GET',
         timeout: 10000
@@ -555,10 +574,13 @@ export class TgForwarder extends plugin {
       const data = await response.json();
       
       if (data.ok && data.result.file_path) {
+        logger.debug(`[TG转发] 文件信息获取成功: ${data.result.file_path}, 大小: ${data.result.file_size}B`);
         return data.result;
+      } else {
+        logger.error(`[TG转发] 文件信息获取失败: ${JSON.stringify(data)}`);
+        return null;
       }
       
-      return null;
     } catch (error) {
       logger.error('[TG转发] 获取文件信息失败:', error);
       return null;
@@ -770,6 +792,7 @@ export class TgForwarder extends plugin {
         this.errorCount = data.errorCount || 0;
         
         logger.info(`[TG转发] 加载状态: 上次更新=${data.lastUpdateAt || '未知'}, 成功=${this.successCount}, 失败=${this.errorCount}`);
+        logger.info(`[TG转发] 使用轻量级去重方案，主要依赖offset机制`);
         
         return data.lastUpdateId || 0;
       }
@@ -794,7 +817,7 @@ export class TgForwarder extends plugin {
         lastUpdateAt: new Date().toISOString(),
         successCount: this.successCount,
         errorCount: this.errorCount,
-        version: '2.0' // 配置版本标识
+        version: '2.1' // 轻量级去重版本
       };
       
       fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
@@ -882,7 +905,7 @@ export class TgForwarder extends plugin {
     }
     this.isRunning = false;
     this.isLocked = false;
-    this.dedupWindow.clear();
+    this.recentMessages.clear();
     logger.info('[TG转发] 插件已停止');
   }
 }
