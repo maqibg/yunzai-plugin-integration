@@ -1,0 +1,56 @@
+# Telegram 监听与转发默认配置（首次运行会复制为 config/tg-config.yaml）
+# 说明：
+# - token：Telegram 官方 bot token
+# - proxy：所有对 TG 的请求均可走代理（http/https/socks4/5）
+# - polling：是否开启定时拉取与轮询间隔（毫秒）
+# - batch：一次合并转发的最大节点数，过大可能被 QQ 风控
+# - dedup：去重保留天数，避免重复发送历史消息
+# - download.dir：媒体下载目录（按频道/日期分层）；发送成功后插件会清理临时文件
+
+token: ""
+
+proxy:
+  enable: true
+  protocol: http   # http / https
+  host: 127.0.0.1
+  port: 7890
+
+polling:
+  enable: true
+  interval_ms: 5000        # 小循环间隔（毫秒），30秒轮询后的间隔，默认5秒
+  timeout_sec: 30          # TG getUpdates 长轮询超时时间（秒），默认30秒
+  cycles_per_batch: 3      # 大循环包含的小循环次数，默认3次
+  batch_interval_ms: 20000 # 大循环结束后的间隔（毫秒），默认20秒
+
+batch:
+  size: 38
+
+dedup:
+  ttl_days: 7
+
+download:
+  dir: plugins/yunzai-plugin-integration/data/temp/tg
+  max_file_mb: 20      # 单文件最大下载大小（MB），超过则跳过
+
+# 日志和过滤器设置
+logging:
+  detailed: false      # 是否输出详细日志（DEBUG级别）
+  show_cycles: false    # 是否显示小循环执行日志
+
+filters:
+  enable: true         # 是否启用内容过滤器
+  remove_telegram_domains: true  # 过滤Telegram相关域名
+  telegram_domains:    # Telegram相关域名列表
+    - t.me
+    - telegram.me
+    - telegram.org
+    - telegra.ph
+
+# 支持多个频道监听，每个元素包含 id 或 username，以及 QQ 目标
+channels:
+  - id: -1001234567890        # 频道 chat.id（优先）
+    username: ""              # 或频道 @username（可选）
+    types: [text, photo, video, document, audio]
+    target:
+      type: group             # group | user
+      id: 123456789           # QQ 群号或 QQ 号

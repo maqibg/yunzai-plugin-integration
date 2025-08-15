@@ -1,18 +1,21 @@
+// TG 配置读写模块（model/tg/tg-setting.js）
+// 作用：
+// - 首次运行将 config/default/dafult-tg-config.yaml 拷贝为 config/tg-config.yaml
+// - 提供 getConfig() 合并默认与用户配置；setConfig() 写回并尽量保留注释
+// - 监听配置文件变更（chokidar），自动失效缓存
 import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
 import chokidar from 'chokidar'
 
+// 基于现有 setting 模板实现，适配 tg-config
 const _path = process.cwd()
 const pluginRoot = path.join(_path, 'plugins', 'yunzai-plugin-integration')
 
-// 如果不在yunzai环境中，使用当前目录
-const actualRoot = fs.existsSync(pluginRoot) ? pluginRoot : path.resolve('.')
-
 class TgSetting {
   constructor() {
-    this.defPath = path.join(actualRoot, 'config', 'default')
-    this.configPath = path.join(actualRoot, 'config')
+    this.defPath = path.join(pluginRoot, 'config', 'default')
+    this.configPath = path.join(pluginRoot, 'config')
 
     this.config = {}
     this.def = {}
@@ -27,70 +30,60 @@ class TgSetting {
     }
   }
 
+  // 计算配置文件路径
+  // - type:'def' 使用 dafult-tg-config.yaml（按需求保留该拼写）
+  // - type:'config' 使用 tg-config.yaml（如不存在则从默认复制）
   getFilePath(name, type = 'config') {
     if (type === 'def') {
-      return path.join(this.defPath, `default-${name}.yaml`)
+      // 名称参数无意义，固定映射到默认模板
+      return path.join(this.defPath, 'dafult-tg-config.yaml')
     } else {
-      const configFile = path.join(this.configPath, `${name}.yaml`)
-      const defFile = path.join(this.defPath, `default-${name}.yaml`)
-
+      const configFile = path.join(this.configPath, 'tg-config.yaml')
+      const defFile = path.join(this.defPath, 'dafult-tg-config.yaml')
       if (!fs.existsSync(configFile) && fs.existsSync(defFile)) {
         try {
           fs.copyFileSync(defFile, configFile)
-          logger.info(`[TG插件] 已创建配置文件: ${name}.yaml`)
-        } catch (error) {
-          logger.error(`[TG插件] 创建配置文件失败: ${error.message}`)
+          logger.info('[TG] 已创建配置文件: tg-config.yaml')
+        } catch (err) {
+          logger.error('[TG] 创建配置文件失败:', err)
         }
       }
       return configFile
     }
   }
 
-  getYaml(name, type = 'config') {
-    if (this[type][name]) return this[type][name]
+  getYaml(type = 'config') {
+    const cacheKey = type
+    if (this[cacheKey]._one) return this[cacheKey]._one
 
-    const filePath = this.getFilePath(name, type)
-    if (!fs.existsSync(filePath)) return {}
-
+    const filePath = this.getFilePath('tg-config', type)
+    if (!fs.existsSync(filePath)) {
+      logger.warn(`[TG] 配置文件不存在: ${filePath}`)
+      return {}
+    }
     try {
       const content = fs.readFileSync(filePath, 'utf8')
       const data = YAML.parse(content)
-      this[type][name] = data || {}
-      this.watch(filePath, name, type)
-      return this[type][name]
-    } catch (error) {
-      logger.error(`[TG插件] 读取配置失败 [${name}]: ${error.message}`)
+      this[cacheKey]._one = data || {}
+      this.watch(filePath, type)
+      return this[cacheKey]._one
+    } catch (err) {
+      logger.error(`[TG] 读取配置失败: ${err.message}`)
       return {}
     }
   }
 
-  getDefConfig(name) {
-    return this.getYaml(name, 'def')
+  getDefConfig() { return this.getYaml('def') }
+
+  // 获取用户配置（合并默认）
+  getConfig() {
+    const defConfig = this.getDefConfig()
+    const userConfig = this.getYaml('config')
+    return { ...defConfig, ...userConfig }
   }
 
-  getConfig(name) {
-    const defConfig = this.getDefConfig(name)
-    const userConfig = this.getYaml(name, 'config')
-    return this.mergeConfig(defConfig, userConfig)
-  }
-
-  mergeConfig(defConfig, userConfig) {
-    const merge = (target, source) => {
-      const result = { ...target }
-      for (const key in source) {
-        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-          result[key] = merge(target[key] || {}, source[key])
-        } else {
-          result[key] = source[key]
-        }
-      }
-      return result
-    }
-    return merge(defConfig, userConfig)
-  }
-
-  setConfig(name, data) {
-    const filePath = this.getFilePath(name, 'config')
+  setConfig(data) {
+    const filePath = this.getFilePath('tg-config', 'config')
     try {
       let yamlContent = ''
       if (fs.existsSync(filePath)) {
@@ -99,24 +92,24 @@ class TgSetting {
           const doc = YAML.parseDocument(originalContent)
           this.updateYamlDocument(doc, data)
           yamlContent = doc.toString()
-        } catch (parseError) {
-          logger.warn(`[TG插件] 无法保留注释，使用常规保存: ${parseError.message}`)
+        } catch (e) {
+          logger.warn('[TG] 无法保留注释，使用常规保存:', e.message)
           yamlContent = YAML.stringify(data)
         }
       } else {
         yamlContent = YAML.stringify(data)
       }
-
       fs.writeFileSync(filePath, yamlContent, 'utf8')
-      delete this.config[name]
-      logger.info(`[TG插件] 保存配置成功: ${name}.yaml`)
+      delete this.config._one
+      logger.info('[TG] 保存配置成功: tg-config.yaml')
       return true
-    } catch (error) {
-      logger.error(`[TG插件] 保存配置失败 [${name}]: ${error.message}`)
+    } catch (err) {
+      logger.error('[TG] 保存配置失败:', err.message)
       return false
     }
   }
 
+  // 尝试在不破坏注释与键顺序的情况下更新 YAML 文档
   updateYamlDocument(doc, data) {
     if (!doc.contents) return
     const updateNode = (node, newData) => {
@@ -135,11 +128,9 @@ class TgSetting {
           }
         }
         for (const [key, value] of Object.entries(newData)) {
-          const exists = node.items.some(item => item.key && item.key.value === key)
+          const exists = node.items.some(i => i.key && i.key.value === key)
           if (!exists) {
-            const keyNode = doc.createNode(key)
-            const valueNode = doc.createNode(value)
-            node.items.push(doc.createPair(keyNode, valueNode))
+            node.items.push(doc.createPair(doc.createNode(key), doc.createNode(value)))
           }
         }
       }
@@ -147,77 +138,19 @@ class TgSetting {
     updateNode(doc.contents, data)
   }
 
-  watch(filePath, name, type) {
-    const watchKey = `${type}_${name}`
-    if (this.watcher[watchKey]) return
+  // 监听配置文件变更，失效缓存并提示日志
+  watch(filePath, type) {
+    const key = `watch_${type}`
+    if (this.watcher[key]) return
     try {
       const watcher = chokidar.watch(filePath)
       watcher.on('change', () => {
-        delete this[type][name]
-        logger.mark(`[TG插件] 配置文件已更新: ${name} [${type}]`)
+        delete this[type]._one
+        logger.mark(`[TG] 配置文件已更新: ${type}`)
       })
-      this.watcher[watchKey] = watcher
-    } catch (error) {
-      logger.warn(`[TG插件] 监听配置失败: ${error.message}`)
-    }
-  }
-
-  // 验证配置完整性
-  validateConfig(name) {
-    const config = this.getConfig(name)
-    const errors = []
-
-    if (name === 'tg-forwarder') {
-      // 验证必填字段
-      if (!config.telegram?.botToken) {
-        errors.push('Telegram Bot Token 未配置')
-      }
-      
-      const allChannels = [
-        ...(config.telegram?.channels || []),
-        ...(config.telegram?.channelsId || [])
-      ]
-      if (allChannels.length === 0) {
-        errors.push('监控频道列表为空')
-      }
-      
-      if (!config.qq?.targetGroups || config.qq.targetGroups.length === 0) {
-        errors.push('目标QQ群列表为空')
-      }
-      
-      // 验证数值范围
-      if (config.monitor?.interval && config.monitor.interval < 60000) {
-        errors.push('监控间隔不能少于60秒')
-      }
-      
-      if (config.files?.maxSize && config.files.maxSize > 52428800) {
-        errors.push('文件大小限制不能超过50MB')
-      }
-      
-      // 验证新的配置字段
-      if (config.advanced?.pollTimeout && (config.advanced.pollTimeout < 5 || config.advanced.pollTimeout > 50)) {
-        errors.push('长轮询超时时间应在5-50秒范围内')
-      }
-      
-      if (config.message?.sendInterval && config.message.sendInterval < 1) {
-        errors.push('发送间隔不能少于1秒')
-      }
-    }
-
-    return errors
-  }
-
-  // 获取配置状态
-  getConfigStatus(name) {
-    const errors = this.validateConfig(name)
-    const configFile = this.getFilePath(name, 'config')
-    const isConfigured = fs.existsSync(configFile)
-    
-    return {
-      isValid: errors.length === 0,
-      isConfigured,
-      errors,
-      configPath: configFile
+      this.watcher[key] = watcher
+    } catch (err) {
+      logger.warn('[TG] 监听配置失败:', err.message)
     }
   }
 }

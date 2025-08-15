@@ -1,46 +1,47 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'url';
+// TG 模块入口（app/tg.js）
+// 作用：
+// - 动态加载 app/tg/ 目录下的所有子模块（如 monitor.js）
+// - 将各子模块导出的默认类聚合到 apps，供 index.js 动态注册到 Yunzai
+// - 兼容 Windows 路径解析
+// 注意：此文件本身不包含业务逻辑，仅负责聚合与装载
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const tgDir = path.join(__dirname, 'tg');
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'url'
 
-// 获取所有TG功能模块
-const files = fs.existsSync(tgDir) 
-    ? fs.readdirSync(tgDir).filter(file => file.endsWith('.js'))
-    : [];
+// 统一解析当前目录，适配 Windows 路径
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const tgDir = path.join(__dirname, 'tg')
 
-if (files.length === 0) {
-    logger.info('[TG插件] tg目录下没有找到.js文件');
+let apps = {}
+
+try {
+  if (!fs.existsSync(tgDir)) {
+    // 若不存在 tg 子目录则跳过加载，便于按需启用
+    logger.warn('[yunzai-plugin-integration] tg 目录不存在，跳过加载')
+  } else {
+    // 读取 tg 目录内所有 .js 文件，逐个动态导入
+    const files = fs.readdirSync(tgDir).filter(f => f.endsWith('.js'))
+    let ret = await Promise.allSettled(files.map(f => import(`./tg/${f}`)))
+    for (let i in files) {
+      const name = files[i].replace('.js', '')
+      if (ret[i].status !== 'fulfilled') {
+        logger.error(`[yunzai-plugin-integration] tg 子模块载入失败：${name}`)
+        logger.error(ret[i].reason)
+        continue
+      }
+      const exp = ret[i].value
+      const keys = Object.keys(exp)
+      if (keys.length > 0) {
+        // 以 tg- 前缀注册模块，避免与其他模块键名冲突
+        apps[`tg-${name.toLowerCase()}`] = exp[keys[0]]
+        logger.info(`[yunzai-plugin-integration] tg 功能加载成功: ${name}`)
+      }
+    }
+  }
+} catch (err) {
+  logger.error('[yunzai-plugin-integration] tg 目录读取失败:', err)
 }
 
-// 动态导入所有模块
-let ret = [];
-files.forEach((file) => {
-    ret.push(import(`./tg/${file}`));
-});
-
-ret = await Promise.allSettled(ret);
-
-let apps = {};
-for (let i in files) {
-    let name = files[i].replace('.js', '').replace('tg-', '');
-    
-    if (ret[i].status != 'fulfilled') {
-        logger.error(`载入TG子模块错误：${logger.red(name)}`);
-        logger.error(ret[i].reason);
-        continue;
-    }
-    
-    const moduleExports = ret[i].value;
-    const keys = Object.keys(moduleExports);
-    if (keys.length > 0) {
-        apps[`tg-${name.toLowerCase()}`] = moduleExports[keys[0]];
-        logger.info(`[TG插件] 成功载入: ${logger.green(name)}`);
-    }
-}
-
-logger.info(`[TG插件] 共载入 ${Object.keys(apps).length} 个功能模块`);
-
-export { apps };
+export { apps }

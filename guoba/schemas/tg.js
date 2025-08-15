@@ -1,110 +1,31 @@
+// 锅巴配置面板 Schema（Telegram 监听与转发）
+// - 通过 GSubForm 定义 UI 布局，将修改后的值写回 tg-config.yaml
+// - 字段说明：
+//   token：官方 bot token
+//   proxy：代理参数（enable、protocol、host、port）
+//   polling：是否开启定时拉取与间隔（毫秒）
+//   batch：每批次合并转发的节点数上限
+//   dedup：去重数据保留天数
+//   download.dir：下载目录（默认 plugins/.../data/temp/tg）
+//   channels：频道与 QQ 目标映射（可多条）
 import tgSetting from '../../model/tg/tg-setting.js'
 
-const defaultConfig = tgSetting.getConfig('tg-forwarder')
+const def = tgSetting.getConfig()
 
 export const tgSchema = {
-  field: 'tg-forwarder',
-  label: 'TG转发插件配置',
+  field: 'tg-config',
+  label: 'Telegram 监听与转发',
   component: 'GSubForm',
   componentProps: {
     multiple: false,
     schemas: [
       {
-        field: 'telegram',
-        label: 'Telegram Bot配置',
-        component: 'GSubForm',
-        componentProps: {
-          multiple: false,
-          schemas: [
-            {
-              field: 'botToken',
-              label: 'Bot Token',
-              component: 'Input',
-              componentProps: {
-                placeholder: '请输入Telegram Bot Token',
-                type: 'password'
-              },
-              value: defaultConfig?.telegram?.botToken,
-              required: true
-            },
-            {
-              field: 'channels',
-              label: '监控频道(用户名)',
-              component: 'Select',
-              componentProps: {
-                mode: 'tags',
-                placeholder: '输入频道用户名，如: @channelname',
-                allowClear: true
-              },
-              value: defaultConfig?.telegram?.channels || [],
-              help: '公开频道使用@用户名格式'
-            },
-            {
-              field: 'channelsId',
-              label: '监控频道(Chat ID)',
-              component: 'Select',
-              componentProps: {
-                mode: 'tags',
-                placeholder: '输入频道Chat ID，如: -1001234567890',
-                allowClear: true
-              },
-              value: defaultConfig?.telegram?.channelsId || [],
-              help: '私有频道或需要精确匹配时使用Chat ID'
-            }
-          ]
-        }
-      },
-      {
-        field: 'qq',
-        label: 'QQ群配置',
-        component: 'GSubForm',
-        componentProps: {
-          multiple: false,
-          schemas: [
-            {
-              field: 'targetGroups',
-              label: '目标QQ群',
-              component: 'Select',
-              componentProps: {
-                mode: 'tags',
-                placeholder: '输入QQ群号，如: 123456789',
-                allowClear: true
-              },
-              value: defaultConfig?.qq?.targetGroups || []
-            }
-          ]
-        }
-      },
-      {
-        field: 'monitor',
-        label: '监控设置',
-        component: 'GSubForm',
-        componentProps: {
-          multiple: false,
-          schemas: [
-            {
-              field: 'enabled',
-              label: '启用自动监控',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.monitor?.enabled !== false
-            },
-            {
-              field: 'interval',
-              label: '监控间隔(分钟)',
-              component: 'InputNumber',
-              componentProps: {
-                min: 1,
-                max: 1440,
-                placeholder: '输入监控间隔分钟数'
-              },
-              value: Math.floor((defaultConfig?.monitor?.interval || 3600000) / 60000)
-            }
-          ]
-        }
+        field: 'token',
+        label: 'Bot Token',
+        bottomHelpMessage: 'Telegram 官方 bot token（必填）',
+        component: 'Input',
+        componentProps: { placeholder: '123456:ABC-xxx' },
+        value: def?.token
       },
       {
         field: 'proxy',
@@ -113,191 +34,82 @@ export const tgSchema = {
         componentProps: {
           multiple: false,
           schemas: [
-            {
-              field: 'enabled',
-              label: '启用代理',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.proxy?.enabled || false
-            },
-            {
-              field: 'url',
-              label: '代理地址',
-              component: 'Input',
-              componentProps: {
-                placeholder: 'http://127.0.0.1:7890 或 socks5://127.0.0.1:1080'
-              },
-              value: defaultConfig?.proxy?.url || '',
-              help: '支持HTTP和SOCKS5代理'
-            }
+            { field: 'enable', label: '启用代理', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }, value: def?.proxy?.enable },
+            { field: 'protocol', label: '协议', component: 'Select', componentProps: { options: [ { label: 'http', value: 'http' }, { label: 'https', value: 'https' } ] }, value: def?.proxy?.protocol },
+            { field: 'host', label: '主机', component: 'Input', componentProps: { placeholder: '127.0.0.1' }, value: def?.proxy?.host },
+            { field: 'port', label: '端口', component: 'InputNumber', componentProps: { min: 1, max: 65535, placeholder: '7890' }, value: def?.proxy?.port }
           ]
         }
       },
       {
-        field: 'files',
-        label: '文件设置',
+        field: 'polling',
+        label: '轮询',
         component: 'GSubForm',
         componentProps: {
           multiple: false,
           schemas: [
-            {
-              field: 'maxSize',
-              label: '最大文件大小(MB)',
-              component: 'InputNumber',
-              componentProps: {
-                min: 1,
-                max: 50,
-                placeholder: '文件大小限制'
-              },
-              value: Math.floor((defaultConfig?.files?.maxSize || 52428800) / 1048576),
-              help: '超过此大小的文件将不会下载转发'
-            },
-            {
-              field: 'autoCleanup',
-              label: '自动清理临时文件',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.files?.autoCleanup !== false
-            },
-            {
-              field: 'sendLargeAsLink',
-              label: '大文件链接模式',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.files?.sendLargeAsLink || false,
-              help: '开启后超过大小限制的文件将以链接形式发送'
-            }
+            { field: 'enable', label: '开启定时拉取', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }, value: def?.polling?.enable },
+            { field: 'interval_ms', label: '小循环间隔(ms)', bottomHelpMessage: '每个30秒轮询后的间隔时间', component: 'InputNumber', componentProps: { min: 1000, max: 120000, placeholder: '5000' }, value: def?.polling?.interval_ms },
+            { field: 'timeout_sec', label: '长轮询超时(s)', bottomHelpMessage: 'TG getUpdates 长轮询超时时间', component: 'InputNumber', componentProps: { min: 1, max: 60, placeholder: '30' }, value: def?.polling?.timeout_sec },
+            { field: 'cycles_per_batch', label: '大循环小循环数', bottomHelpMessage: '大循环包含的小循环次数', component: 'InputNumber', componentProps: { min: 1, max: 10, placeholder: '3' }, value: def?.polling?.cycles_per_batch },
+            { field: 'batch_interval_ms', label: '大循环间隔(ms)', bottomHelpMessage: '大循环结束后的间隔时间', component: 'InputNumber', componentProps: { min: 5000, max: 300000, placeholder: '20000' }, value: def?.polling?.batch_interval_ms }
           ]
         }
       },
       {
-        field: 'message',
-        label: '消息处理',
+        field: 'batch',
+        label: '批次',
+        component: 'GSubForm',
+        componentProps: { multiple: false, schemas: [ { field: 'size', label: '每批条数', component: 'InputNumber', componentProps: { min: 1, max: 20, placeholder: '8' }, value: def?.batch?.size } ] }
+      },
+      {
+        field: 'dedup',
+        label: '去重/保留',
+        component: 'GSubForm',
+        componentProps: { multiple: false, schemas: [ { field: 'ttl_days', label: '去重保留(天)', component: 'InputNumber', componentProps: { min: 1, max: 30, placeholder: '7' }, value: def?.dedup?.ttl_days } ] }
+      },
+      {
+        field: 'download',
+        label: '下载目录',
+        component: 'GSubForm',
+        componentProps: { multiple: false, schemas: [ { field: 'dir', label: '目录', component: 'Input', componentProps: { placeholder: 'plugins/yunzai-plugin-integration/data/temp/tg' }, value: def?.download?.dir }, { field: 'max_file_mb', label: '单文件上限(MB)', component: 'InputNumber', componentProps: { min: 1, max: 50, placeholder: '20' }, value: def?.download?.max_file_mb } ] }
+      },
+      {
+        field: 'logging',
+        label: '日志设置',
         component: 'GSubForm',
         componentProps: {
           multiple: false,
           schemas: [
-            {
-              field: 'filterLinks',
-              label: '过滤消息中的链接',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.message?.filterLinks !== false,
-              help: '开启后将自动删除转发消息中的所有链接'
-            },
-            {
-              field: 'sendInterval',
-              label: '发送间隔(秒)',
-              component: 'InputNumber',
-              componentProps: {
-                min: 1,
-                max: 60,
-                placeholder: '多群转发时的发送间隔'
-              },
-              value: defaultConfig?.message?.sendInterval || 1,
-              help: '避免发送过快被限制'
-            },
-            {
-              field: 'retryOnFailure',
-              label: '失败时重试',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.message?.retryOnFailure !== false,
-              help: '发送失败时自动重试一次'
-            },
-            {
-              field: 'template',
-              label: '消息模板',
-              component: 'Input.TextArea',
-              componentProps: {
-                placeholder: '自定义消息格式模板，留空使用默认格式',
-                autoSize: { minRows: 2, maxRows: 4 }
-              },
-              value: defaultConfig?.message?.template || '',
-              help: '支持变量：{time}、{channel}、{content}'
-            }
+            { field: 'detailed', label: '详细日志', bottomHelpMessage: '开启后显示DEBUG级别的详细日志信息', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }, value: def?.logging?.detailed },
+            { field: 'show_cycles', label: '显示循环日志', bottomHelpMessage: '显示小循环执行进度信息', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }, value: def?.logging?.show_cycles }
           ]
         }
       },
       {
-        field: 'advanced',
-        label: '高级设置',
+        field: 'filters',
+        label: '内容过滤器',
         component: 'GSubForm',
         componentProps: {
           multiple: false,
           schemas: [
-            {
-              field: 'useLongPolling',
-              label: '长轮询模式',
-              component: 'Switch',
-              componentProps: {
-                checkedChildren: '开启',
-                unCheckedChildren: '关闭'
-              },
-              value: defaultConfig?.advanced?.useLongPolling !== false,
-              help: '开启长轮询可减少API调用次数'
-            },
-            {
-              field: 'pollTimeout',
-              label: '轮询超时(秒)',
-              component: 'InputNumber',
-              componentProps: {
-                min: 5,
-                max: 50,
-                placeholder: '长轮询超时时间'
-              },
-              value: defaultConfig?.advanced?.pollTimeout || 30,
-              help: '长轮询等待新消息的最大时间'
-            },
-            {
-              field: 'requestTimeout',
-              label: '请求超时(秒)',
-              component: 'InputNumber',
-              componentProps: {
-                min: 5,
-                max: 300,
-                placeholder: 'API请求超时时间'
-              },
-              value: Math.floor((defaultConfig?.advanced?.requestTimeout || 30000) / 1000)
-            },
-            {
-              field: 'retryCount',
-              label: '失败重试次数',
-              component: 'InputNumber',
-              componentProps: {
-                min: 0,
-                max: 10,
-                placeholder: '请求失败重试次数'
-              },
-              value: defaultConfig?.advanced?.retryCount || 3
-            },
-            {
-              field: 'retryDelay',
-              label: '重试延迟(秒)',
-              component: 'InputNumber',
-              componentProps: {
-                min: 1,
-                max: 60,
-                placeholder: '重试前等待时间'
-              },
-              value: Math.floor((defaultConfig?.advanced?.retryDelay || 5000) / 1000),
-              help: '使用指数退避算法，实际延迟会逐次增加'
-            }
+            { field: 'enable', label: '启用过滤器', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }, value: def?.filters?.enable },
+            { field: 'remove_telegram_domains', label: '过滤Telegram域名', bottomHelpMessage: '将消息中的Telegram域名替换为https:///', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }, value: def?.filters?.remove_telegram_domains }
+          ]
+        }
+      },
+      {
+        field: 'channels',
+        label: '频道映射（简化）',
+        bottomHelpMessage: '可添加多条：id 或 username，选择目标与类型；复杂场景可直接编辑 tg-config.yaml',
+        component: 'GSubForm',
+        componentProps: {
+          multiple: true,
+          schemas: [
+            { field: 'id', label: '频道ID', component: 'Input', componentProps: { placeholder: '-100xxxxxxxxxx（优先）' } },
+            { field: 'username', label: '频道用户名', component: 'Input', componentProps: { placeholder: '@channel（可选）' } },
+            { field: 'types', label: '同步类型(逗号分隔)', component: 'Input', componentProps: { placeholder: 'text,photo,video,document,audio' } },
+            { field: 'target', label: 'QQ 目标', component: 'GSubForm', componentProps: { multiple: false, schemas: [ { field: 'type', label: '类型', component: 'Select', componentProps: { options: [ { label: '群', value: 'group' }, { label: '私聊', value: 'user' } ] } }, { field: 'id', label: 'ID', component: 'InputNumber', componentProps: { min: 1, placeholder: '群号或 QQ 号' } } ] } }
           ]
         }
       }
