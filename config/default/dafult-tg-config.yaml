@@ -56,12 +56,10 @@ filters:
 # - types 支持：text(文本), photo(图片), video(视频), document(文档), audio(音频)
 # 频道配置（可以为空数组，或配置多个频道）
 # 配置示例：
-# channels:
-#   - id: ""                    # 频道ID（可为空，如: -1001234567890）
-#     username: ""             # 频道用户名（可为空，不包含@）
-#     types: [text, photo, video, document, audio]  # 要同步的消息类型
-#     target:
-#       type: group           # 目标类型: group(群聊) 或 user(私聊)
-#       id: 123456789         # QQ群号或QQ号
-
-channels: []
+channels:
+  - id: ""                    # 频道ID（可为空，如: -1001234567890）
+    username: ""             # 频道用户名（可为空，不包含@）
+    types: [text, photo, video, document, audio]  # 要同步的消息类型
+    target:
+      type: group           # 目标类型: group(群聊) 或 user(私聊)
+      id: 123456789         # QQ群号或QQ号
