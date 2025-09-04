@@ -1,7 +1,7 @@
 import setting from '../../model/hs/hs-setting.js'
 
-// 获取默认配置
-const defaultConfig = setting.getConfig('hs-kunkundinzhen')
+// 获取用户实际配置（不包含默认值）
+const defaultConfig = setting.getYaml('hs-kunkundinzhen', 'config') || {}
 
 export const hsDingzhenSchema = {
   field: 'hs-kunkundinzhen',

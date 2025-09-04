@@ -3,7 +3,10 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(node:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "WebSearch",
+      "mcp__context7__resolve-library-id",
+      "Bash(find:*)"
     ],
     "deny": []
   }

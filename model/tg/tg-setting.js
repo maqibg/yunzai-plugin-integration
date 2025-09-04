@@ -54,7 +54,7 @@ class TgSetting {
 
   getYaml(type = 'config') {
     const cacheKey = type
-    if (this[cacheKey]._one) return this[cacheKey]._one
+    if (this[type]._one) return this[type]._one
 
     const filePath = this.getFilePath('tg-config', type)
     if (!fs.existsSync(filePath)) {
@@ -64,9 +64,9 @@ class TgSetting {
     try {
       const content = fs.readFileSync(filePath, 'utf8')
       const data = YAML.parse(content)
-      this[cacheKey]._one = data || {}
+      this[type]._one = data || {}
       this.watch(filePath, type)
-      return this[cacheKey]._one
+      return this[type]._one
     } catch (err) {
       logger.error(`[TG] 读取配置失败: ${err.message}`)
       return {}

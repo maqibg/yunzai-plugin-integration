@@ -1,7 +1,7 @@
 import lotusSetting from '../../model/lotus/lotus-setting.js'
 
-// 获取默认配置
-const defaultConfig = lotusSetting.getConfig('lotus-parser')
+// 获取用户实际配置（不包含默认值）
+const defaultConfig = lotusSetting.getYaml('lotus-parser', 'config') || {}
 
 export const lotusParserSchema = {
   field: 'lotus-parser',
@@ -119,6 +119,71 @@ export const lotusParserSchema = {
                 min: 0,
                 max: 1000,
                 placeholder: '200'
+              }
+            },
+            {
+              field: 'smartQuality',
+              label: '智能画质配置',
+              component: 'GSubForm',
+              componentProps: {
+                multiple: false,
+                schemas: [
+                  {
+                    field: 'enable',
+                    label: '启用智能画质',
+                    bottomHelpMessage: '是否启用智能画质降级功能，超过阈值自动选择更低画质',
+                    component: 'Switch',
+                    componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+                  },
+                  {
+                    field: 'autoDowngradeThreshold',
+                    label: '降级触发阈值',
+                    bottomHelpMessage: '文件大小超过此阈值（MB）时自动尝试降低画质',
+                    component: 'InputNumber',
+                    componentProps: {
+                      min: 50,
+                      max: 500,
+                      placeholder: '100'
+                    }
+                  },
+                  {
+                    field: 'qualityPriority',
+                    label: '画质降级优先级',
+                    bottomHelpMessage: '画质降级的优先顺序，按从高到低排列',
+                    component: 'Select',
+                    componentProps: {
+                      mode: 'multiple',
+                      options: [
+                        { label: '4K超高清 (120)', value: 120 },
+                        { label: '1080P60帧 (116)', value: 116 },
+                        { label: '1080P高码率 (112)', value: 112 },
+                        { label: '1080P高清 (80)', value: 80 },
+                        { label: '720P60帧 (74)', value: 74 },
+                        { label: '720P高清 (64)', value: 64 },
+                        { label: '480P清晰 (32)', value: 32 },
+                        { label: '360P流畅 (16)', value: 16 }
+                      ]
+                    }
+                  },
+                  {
+                    field: 'showDowngradeNotice',
+                    label: '显示降级提示',
+                    bottomHelpMessage: '是否在降级时向用户显示提示消息',
+                    component: 'Switch',
+                    componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+                  },
+                  {
+                    field: 'precheckTimeout',
+                    label: '预检查超时',
+                    bottomHelpMessage: 'BBDown预检查超时时间（秒），避免长时间等待',
+                    component: 'InputNumber',
+                    componentProps: {
+                      min: 5,
+                      max: 60,
+                      placeholder: '15'
+                    }
+                  },
+                ]
               }
             }
           ]

@@ -124,6 +124,46 @@ export class LotusBilibiliParser extends plugin {
                 return e.reply(`P${pageNum}时长超过 ${(cfg.bilibili.durationLimit / 60).toFixed(0)} 分钟限制，不发送文件。`);
             }
 
+            // 检查文件大小限制和智能画质选择（分P版本）
+            if (cfg.bilibili.fileSizeLimit && cfg.bilibili.fileSizeLimit > 0) {
+                const smartQualityResult = await this.smartQualitySelection(videoInfo.bvid, videoInfo, cfg, pageNum);
+                
+                // 如果智能画质选择找到了合适的画质
+                if (smartQualityResult.quality !== cfg.bilibili.resolution) {
+                    // 更新配置以使用选择的画质
+                    cfg.bilibili.resolution = smartQualityResult.quality;
+                    
+                    // 显示降级提示
+                    if (smartQualityResult.message) {
+                        await e.reply(`P${pageNum} ${smartQualityResult.message}`);
+                    }
+                }
+                
+                // 检查最终选择的画质是否仍然超限
+                if (smartQualityResult.estimatedSize > cfg.bilibili.fileSizeLimit) {
+                    const sizeText = `P${pageNum}预估大小: ${smartQualityResult.estimatedSize}MB，超过 ${cfg.bilibili.fileSizeLimit}MB 限制`;
+                    
+                    // 如果启用了用户确认功能
+                    const smartQuality = cfg.bilibili.smartQuality;
+                    if (smartQuality?.askUserConfirmation) {
+                        await e.reply([
+                            `P${pageNum}: ${pageInfo.part}`,
+                            `\n⚠️ ${sizeText}`,
+                            `\n是否仍要下载？回复 "是" 或 "y" 确认，${smartQuality.confirmationTimeout || 60}秒内有效。`
+                        ]);
+                        
+                        // 等待用户确认
+                        const confirmResult = await this.waitForUserConfirmation(e, smartQuality.confirmationTimeout || 60);
+                        if (!confirmResult) {
+                            return e.reply(`P${pageNum}：${sizeText}，已取消下载`);
+                        }
+                    } else {
+                        // 不启用用户确认，直接返回信息
+                        return e.reply(`P${pageNum}：${sizeText}，仅提供信息`);
+                    }
+                }
+            }
+
             await fs.promises.mkdir(tempPath, { recursive: true });
             if (cfg.bilibili.useBBDown) {
                 await this.downloadSingleWithBBDown(e, url, tempPath, videoInfo, pageNum);
@@ -153,12 +193,25 @@ export class LotusBilibiliParser extends plugin {
             return e.reply(`视频时长超过 ${(cfg.bilibili.durationLimit / 60).toFixed(0)} 分钟限制，不发送文件。`);
         }
 
+        // 智能画质选择 - 始终尝试优化画质选择
+        const originalQuality = cfg.bilibili.resolution;
+        const finalQuality = await this.autoSelectQuality(videoInfo, originalQuality, cfg);
+        
+        if (finalQuality !== originalQuality) {
+            cfg.bilibili.resolution = finalQuality;
+            const originalName = this.getQualityName(originalQuality);
+            const finalName = this.getQualityName(finalQuality);
+            
+            if (cfg.bilibili.smartQuality?.showDowngradeNotice !== false) {
+                await e.reply(`⚠️ 智能画质降级: ${originalName} → ${finalName}`);
+            }
+        }
+        
         // 检查文件大小限制
         if (cfg.bilibili.fileSizeLimit && cfg.bilibili.fileSizeLimit > 0) {
-            const estimatedSize = await this.checkVideoSize(videoInfo, cfg);
-            if (estimatedSize > cfg.bilibili.fileSizeLimit) {
-                const sizeText = `预估大小: ${estimatedSize}MB，超过 ${cfg.bilibili.fileSizeLimit}MB 限制`;
-                const config = setting.getConfig('lotus-parser');
+            // 检查最终选择的画质是否仍然超限
+            const finalSize = await this.checkVideoSize(videoInfo, cfg);
+            if (finalSize > cfg.bilibili.fileSizeLimit) {
                 return e.reply([
                     `${videoInfo.title}`,
                     `\n📺 UP主: ${videoInfo.owner.name}`,
@@ -166,7 +219,7 @@ export class LotusBilibiliParser extends plugin {
                     `\n👀 播放: ${this.formatNumber(videoInfo.stat.view)} | 👍 点赞: ${this.formatNumber(videoInfo.stat.like)}`,
                     `\n💬 ${videoInfo.desc.substring(0, 100)}${videoInfo.desc.length > 100 ? '...' : ''}`,
                     `\n🔗 链接: https://www.bilibili.com/video/${videoInfo.bvid}`,
-                    `\n⚠️ ${sizeText}，仅提供视频信息`
+                    `\n⚠️ 最小画质(${this.getQualityName(finalQuality)})仍超过${cfg.bilibili.fileSizeLimit}MB限制，仅提供信息`
                 ]);
             }
         }
@@ -474,6 +527,236 @@ export class LotusBilibiliParser extends plugin {
         const s = totalSeconds % 60;
         const pad = (n) => String(n).padStart(2, '0');
         return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    }
+
+    /**
+     * 智能画质选择：根据文件大小自动选择合适的画质
+     * @param {string} bvid 视频BVID
+     * @param {Object} videoInfo 视频信息
+     * @param {Object} cfg 配置信息
+     * @param {number} pageNum 分P编号（可选）
+     * @returns {Promise<{quality: number, estimatedSize: number, message: string}>}
+     */
+    async smartQualitySelection(bvid, videoInfo, cfg, pageNum = null) {
+        const smartQuality = cfg.bilibili.smartQuality;
+        
+        // 如果未启用智能画质选择，返回原始配置
+        if (!smartQuality || !smartQuality.enable) {
+            const currentSize = await this.checkVideoSize(videoInfo, cfg);
+            return {
+                quality: cfg.bilibili.resolution,
+                estimatedSize: currentSize,
+                message: null
+            };
+        }
+
+        const originalQuality = cfg.bilibili.resolution;
+        const threshold = smartQuality.autoDowngradeThreshold || 100;
+        const targetSize = smartQuality.targetSize || 80;
+        const qualityPriority = smartQuality.qualityPriority || [80, 64, 32, 16];
+        
+        // 预检查当前画质的文件大小
+        let currentSize = await this.checkVideoSizeByQuality(bvid, originalQuality, videoInfo, pageNum);
+        
+        logger.debug(`[Lotus插件][智能画质] 原始画质${originalQuality}预估大小: ${currentSize}MB`);
+        
+        // 如果当前画质符合要求，直接使用
+        if (currentSize <= threshold) {
+            return {
+                quality: originalQuality,
+                estimatedSize: currentSize,
+                message: null
+            };
+        }
+
+        // 需要降级，按优先级尝试各个画质
+        const resolutionMap = {
+            120: '4K 超高清',
+            116: '1080P 60帧', 
+            112: '1080P 高码率',
+            80: '1080P 高清',
+            74: '720P 60帧',
+            64: '720P 高清',
+            32: '480P 清晰', 
+            16: '360P 流畅'
+        };
+        
+        let bestQuality = null;
+        let bestSize = null;
+        const triedQualities = [];
+        
+        // 确保原始画质在尝试列表中
+        const qualityList = [...new Set([originalQuality, ...qualityPriority])].sort((a, b) => b - a);
+        
+        for (const quality of qualityList) {
+            if (quality >= originalQuality) continue; // 跳过等于或高于原画质的选项
+            
+            try {
+                const size = await this.checkVideoSizeByQuality(bvid, quality, videoInfo, pageNum);
+                triedQualities.push({ quality, size, name: resolutionMap[quality] });
+                
+                logger.debug(`[Lotus插件][智能画质] 尝试画质${quality}(${resolutionMap[quality]})：${size}MB`);
+                
+                if (size <= targetSize) {
+                    bestQuality = quality;
+                    bestSize = size;
+                    break;
+                }
+                
+                // 记录最优选项（即使超过目标大小，也比原画质小）
+                if (!bestQuality || size < bestSize) {
+                    bestQuality = quality;
+                    bestSize = size;
+                }
+                
+            } catch (error) {
+                logger.debug(`[Lotus插件][智能画质] 检查画质${quality}失败: ${error.message}`);
+                continue;
+            }
+        }
+        
+        // 生成降级消息
+        let message = null;
+        if (bestQuality && smartQuality.showDowngradeNotice) {
+            const originalName = resolutionMap[originalQuality] || `${originalQuality}P`;
+            const bestName = resolutionMap[bestQuality] || `${bestQuality}P`;
+            message = `⚠️ 智能画质降级：${originalName}(${currentSize}MB) → ${bestName}(${bestSize}MB)`;
+        }
+        
+        return {
+            quality: bestQuality || originalQuality,
+            estimatedSize: bestSize || currentSize,
+            message: message,
+            triedQualities: triedQualities
+        };
+    }
+
+    /**
+     * 检查指定画质的视频文件大小
+     * @param {string} bvid 视频BVID
+     * @param {number} quality 画质代码
+     * @param {Object} videoInfo 视频信息
+     * @param {number} pageNum 分P编号（可选）
+     * @returns {Promise<number>} 预估大小(MB)
+     */
+    async checkVideoSizeByQuality(bvid, quality, videoInfo, pageNum = null) {
+        const cfg = setting.getConfig('lotus-parser');
+        
+        try {
+            // 优先使用BBDown获取精确大小
+            if (cfg.bilibili.useBBDown) {
+                const bbdownSize = await this.getBBDownVideoInfoByQuality(bvid, quality, pageNum);
+                if (bbdownSize > 0) {
+                    return bbdownSize;
+                }
+            }
+
+            // 备用方案：API方式预估
+            const tempCfg = { ...cfg };
+            tempCfg.bilibili.resolution = quality;
+            return await this.estimateVideoSize(videoInfo, tempCfg);
+            
+        } catch (error) {
+            logger.debug(`[Lotus插件][画质检查] 检查画质${quality}失败: ${error.message}`);
+            // 使用估算方式
+            const tempCfg = { ...cfg };
+            tempCfg.bilibili.resolution = quality;
+            return this.estimateVideoSize(videoInfo, tempCfg);
+        }
+    }
+
+    /**
+     * 使用BBDown获取指定画质的视频信息和大小
+     * @param {string} bvid 视频BVID
+     * @param {number} quality 画质代码
+     * @param {number} pageNum 分P编号（可选）
+     * @returns {Promise<number>} 文件大小(MB)
+     */
+    async getBBDownVideoInfoByQuality(bvid, quality, pageNum = null) {
+        return new Promise((resolve) => {
+            try {
+                const cfg = setting.getConfig('lotus-parser');
+                const smartQuality = cfg.bilibili.smartQuality;
+                const timeout = (smartQuality?.precheckTimeout || 15) * 1000;
+                
+                const toolsPath = cfg?.external_tools?.toolsPath;
+                let bbdownPath = toolsPath ? path.join(toolsPath, 'BBDown.exe') : 'BBDown';
+                
+                // 构建BBDown命令参数
+                const resolutionMap = {
+                    120: '8K 超高清',
+                    116: '1080P 60帧',
+                    112: '1080P 高码率', 
+                    80: '1080P 高清',
+                    74: '720P 60帧',
+                    64: '720P 高清',
+                    32: '480P 清晰',
+                    16: '360P 流畅'
+                };
+                const dfnPriority = resolutionMap[quality] || String(quality);
+                
+                let command = `"${bbdownPath}" --only-show-info --dfn-priority "${dfnPriority}" "https://www.bilibili.com/video/${bvid}"`;
+                if (pageNum) {
+                    command += ` -p ${pageNum}`;
+                }
+                
+                const { exec } = require('child_process');
+                const timer = setTimeout(() => {
+                    logger.debug(`[Lotus插件][智能画质] BBDown画质${quality}预检查超时`);
+                    resolve(0);
+                }, timeout);
+
+                exec(command, { encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+                    clearTimeout(timer);
+                    
+                    if (error) {
+                        logger.debug(`[Lotus插件][智能画质] BBDown画质${quality}预检查失败: ${error.message}`);
+                        resolve(0);
+                        return;
+                    }
+
+                    try {
+                        const output = stdout + stderr;
+                        const sizePatterns = [
+                            /大小[:\s]*(\d+(?:\.\d+)?)\s*(MB|GB|KB)/i,
+                            /size[:\s]*(\d+(?:\.\d+)?)\s*(MB|GB|KB)/i,
+                            /文件大小[:\s]*(\d+(?:\.\d+)?)\s*(MB|GB|KB)/i,
+                            /预计大小[:\s]*(\d+(?:\.\d+)?)\s*(MB|GB|KB)/i,
+                            /(\d+(?:\.\d+)?)\s*(MB|GB|KB)(?=\s|$)/i
+                        ];
+                        
+                        for (const pattern of sizePatterns) {
+                            const match = output.match(pattern);
+                            if (match) {
+                                const size = parseFloat(match[1]);
+                                const unit = match[2].toUpperCase();
+                                
+                                let sizeInMB = 0;
+                                switch (unit) {
+                                    case 'GB': sizeInMB = Math.ceil(size * 1024); break;
+                                    case 'MB': sizeInMB = Math.ceil(size); break; 
+                                    case 'KB': sizeInMB = Math.ceil(size / 1024); break;
+                                    default: sizeInMB = Math.ceil(size / (1024 * 1024)); break;
+                                }
+                                
+                                logger.debug(`[Lotus插件][智能画质] BBDown画质${quality}解析: ${size} ${unit} (${sizeInMB}MB)`);
+                                resolve(sizeInMB);
+                                return;
+                            }
+                        }
+                        
+                        resolve(0);
+                    } catch (parseError) {
+                        logger.debug(`[Lotus插件][智能画质] 解析BBDown画质${quality}输出失败: ${parseError.message}`);
+                        resolve(0);
+                    }
+                });
+                
+            } catch (error) {
+                logger.debug(`[Lotus插件][智能画质] BBDown画质${quality}预检查异常: ${error.message}`);
+                resolve(0);
+            }
+        });
     }
 
     /**
@@ -826,6 +1109,57 @@ export class LotusBilibiliParser extends plugin {
         return { sessdata: "", source: 'none' };
     }
 
+    /**
+     * 等待用户确认
+     * @param {Object} e 消息事件
+     * @param {number} timeout 超时时间（秒）
+     * @returns {Promise<boolean>} 是否确认
+     */
+    async waitForUserConfirmation(e, timeout = 60) {
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                resolve(false);
+            }, timeout * 1000);
+            
+            // 监听下一条消息
+            const listener = async (nextE) => {
+                // 检查是否是同一用户在同一群/私聊
+                if (nextE.user_id === e.user_id && 
+                    ((e.isGroup && nextE.group_id === e.group_id) || (!e.isGroup && !nextE.isGroup))) {
+                    
+                    const msg = nextE.msg?.trim().toLowerCase();
+                    if (msg === '是' || msg === 'y' || msg === 'yes' || msg === '确认') {
+                        clearTimeout(timer);
+                        resolve(true);
+                    } else if (msg === '否' || msg === 'n' || msg === 'no' || msg === '取消') {
+                        clearTimeout(timer);
+                        resolve(false);
+                    }
+                }
+            };
+            
+            // 添加临时消息监听器
+            Bot.on('message', listener);
+            
+            // 清理监听器
+            setTimeout(() => {
+                Bot.off('message', listener);
+            }, (timeout + 1) * 1000);
+        });
+    }
+
+    /**
+     * 格式化数字显示
+     * @param {number} num 数字
+     * @returns {string} 格式化后的字符串
+     */
+    formatNumber(num) {
+        if (num >= 10000) {
+            return `${(num / 10000).toFixed(1)}万`;
+        }
+        return num.toString();
+    }
+
     async runBBDown(url, cwd, pageNum = null, extraArgsStr = '') {
         const cfg = setting.getConfig('lotus-parser');
         if (!cfg || !cfg.bilibili) {
@@ -870,5 +1204,106 @@ export class LotusBilibiliParser extends plugin {
             });
             bbdown.on('error', (err) => reject(err));
         });
+    }
+
+    /**
+     * 自动选择合适的画质（完全自动化，无用户交互）
+     * @param {Object} videoInfo 视频信息
+     * @param {number} targetQuality 目标画质
+     * @param {Object} cfg 配置对象
+     * @returns {Promise<number>} 最终选择的画质
+     */
+    async autoSelectQuality(videoInfo, targetQuality, cfg) {
+        const smartConfig = cfg.bilibili?.smartQuality;
+        
+        // 如果未启用智能画质，直接返回目标画质
+        if (!smartConfig?.enable) {
+            return targetQuality;
+        }
+
+        const threshold = smartConfig.autoDowngradeThreshold || 100;
+        const qualityPriority = smartConfig.qualityPriority || [80, 64, 32, 16];
+
+        logger.info(`[Lotus插件] 智能画质选择开始，阈值: ${threshold}MB`);
+
+        // 首先检查目标画质的大小
+        const originalSize = await this.estimateVideoSizeByQuality(videoInfo, targetQuality);
+        if (originalSize <= threshold) {
+            logger.info(`[Lotus插件] 当前画质${this.getQualityName(targetQuality)}(${originalSize}MB) 未超过阈值`);
+            return targetQuality;
+        }
+
+        logger.info(`[Lotus插件] 当前画质${this.getQualityName(targetQuality)}(${originalSize}MB) 超过阈值，开始自动降级`);
+
+        // 按优先级依次尝试降级画质
+        for (const quality of qualityPriority) {
+            // 跳过比目标画质更高的选项
+            if (quality >= targetQuality) continue;
+
+            const size = await this.estimateVideoSizeByQuality(videoInfo, quality);
+            
+            if (size > 0 && size <= threshold) {
+                logger.info(`[Lotus插件] ✅ 自动降级成功: ${this.getQualityName(targetQuality)}(${originalSize}MB) → ${this.getQualityName(quality)}(${size}MB)`);
+                return quality;
+            }
+        }
+
+        // 如枟所有画质都超过阈值，选择最小的那个
+        const lowestQuality = qualityPriority[qualityPriority.length - 1] || 16;
+        const lowestSize = await this.estimateVideoSizeByQuality(videoInfo, lowestQuality);
+        
+        logger.warn(`[Lotus插件] ⚠️ 所有画质均超过${threshold}MB阈值，使用最小画质: ${this.getQualityName(lowestQuality)}(${lowestSize}MB)`);
+        return lowestQuality;
+    }
+
+    /**
+     * 基于时长和画质估算视频大小
+     * @param {Object} videoInfo 视频信息
+     * @param {number} quality 画质代码
+     * @returns {Promise<number>} 估算大小(MB)
+     */
+    async estimateVideoSizeByQuality(videoInfo, quality) {
+        const duration = videoInfo.duration || 0;
+        if (duration <= 0) return 0;
+
+        // 根据画质设定基础码率 (kbps)
+        let baseBitrate;
+        switch (quality) {
+            case 120: baseBitrate = 6000; break; // 4K
+            case 116: baseBitrate = 4000; break; // 1080P60
+            case 112: baseBitrate = 3500; break; // 1080P高码率  
+            case 80:  baseBitrate = 2500; break; // 1080P
+            case 74:  baseBitrate = 2000; break; // 720P60
+            case 64:  baseBitrate = 1500; break; // 720P
+            case 32:  baseBitrate = 800;  break; // 480P
+            case 16:  baseBitrate = 400;  break; // 360P
+            default:  baseBitrate = 1500; break; // 默认720P
+        }
+
+        const audioBitrate = 128; // 音频码率
+        const totalBitrate = baseBitrate + audioBitrate;
+        const estimatedSize = Math.ceil((totalBitrate * duration) / 8192); // 转换为MB
+
+        logger.debug(`[Lotus插件] 画质${quality}大小估算: 时长${duration}s, 码率${totalBitrate}kbps, 预估${estimatedSize}MB`);
+        return estimatedSize;
+    }
+
+    /**
+     * 获取画质名称
+     * @param {number} quality 画质代码
+     * @returns {string} 画质名称
+     */
+    getQualityName(quality) {
+        const qualityMap = {
+            120: '4K超高清',
+            116: '1080P60帧',
+            112: '1080P高码率',
+            80: '1080P高清',
+            74: '720P60帧', 
+            64: '720P高清',
+            32: '480P清晰',
+            16: '360P流畅'
+        };
+        return qualityMap[quality] || `画质${quality}`;
     }
 }

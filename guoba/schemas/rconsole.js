@@ -1,6 +1,7 @@
 import rconsoleSetting from '../../model/rconsole/rconsole-setting.js'
 
-const defaultConfig = rconsoleSetting.getConfig('rconsole')
+// 获取用户实际配置（不包含默认值）
+const defaultConfig = rconsoleSetting.getYaml('rconsole', 'config') || {}
 
 export const rconsoleSchema = {
   field: 'rconsole',

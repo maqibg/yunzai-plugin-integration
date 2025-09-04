@@ -47,6 +47,6 @@ config/*.yaml
 *.old
 
 CLAUDE.md
-.claude/
+.claude/*
 .claude
 AGENTS.md

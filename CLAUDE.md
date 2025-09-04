@@ -120,10 +120,10 @@ bilibili:
 
 ## Telegram模块（TG）
 
-TG模块提供Telegram频道监听与转发功能，支持将Telegram频道的消息自动转发到QQ群或私聊。
+TG模块提供Telegram频道监听与转发功能，通过#tg指令手动触发拉取并转发消息到QQ群或私聊。
 
 ### 核心功能
-- **频道监听**：通过Telegram Bot API长轮询监听频道新消息
+- **指令触发**：通过#tg指令手动触发获取频道新消息
 - **媒体下载**：自动下载文本、图片、视频、文档、音频等内容到本地
 - **智能转发**：根据媒体类型选择最佳QQ消息格式（图片段、视频段、音频段、文件段）
 - **合并转发**：将TG消息整合为QQ合并转发消息
@@ -140,12 +140,13 @@ proxy:                       # 代理设置
   protocol: http            # http/https
   host: 127.0.0.1
   port: 7890
-polling:                    # 轮询设置
-  enable: false             # 是否启用定时轮询
-  interval_ms: 5000         # 小循环间隔（毫秒）
-  timeout_sec: 30           # 长轮询超时（秒）
-  cycles_per_batch: 3       # 大循环包含的小循环次数
-  batch_interval_ms: 20000  # 大循环结束后的间隔（毫秒）
+batch:                       # 批量转发设置
+  size: 8                   # 每批转发消息数量
+dedup:                       # 去重设置
+  ttl_days: 7               # 去重数据保留天数
+download:                    # 下载设置
+  dir: plugins/yunzai-plugin-integration/data/temp/tg
+  max_file_mb: 20           # 单文件大小限制(MB)
 channels:                   # 频道配置（数组）
   - id: -1001234567890      # 频道ID（优先）
     username: ""            # 或频道用户名
@@ -156,56 +157,59 @@ channels:                   # 频道配置（数组）
 ```
 
 ### 使用命令
-- `#tg拉取`：智能手动拉取（停止大循环，执行短轮询，合并到当前大循环，立即发送，重置循环）
+- `#tg`：手动拉取TG频道新消息并转发到配置的QQ目标
+- `#tg拉取`：同上（兼容指令）
+- `#拉取tg`：同上（兼容指令）
 
-### 大循环调度机制
-TG模块采用大循环批量转发机制，提高效率并减少频繁发送：
+### 工作原理
+TG模块采用指令触发模式，不再使用自动轮询：
 
-#### **循环结构**
-```
-大循环 = N个小循环 + 批量发送 + 大循环间隔
-小循环 = 30秒长轮询 + 5秒间隔
-```
-
-#### **工作流程**
-1. **小循环**：
-   - 30秒长轮询收集消息（不发送）
-   - 5秒间隔后进入下一个小循环
-   - 重复N次（默认3次）
-
-2. **大循环结束**：
-   - 发送所有收集的消息
-   - 清理临时文件
-   - 20秒大循环间隔
-   - 开始新的大循环
-
-3. **手动拉取**：
-   - 停止当前大循环
-   - 执行2秒短轮询
-   - 将结果合并到之前收集的消息
-   - 立即发送所有消息
-   - 重置循环计数，重启大循环
-
-#### **配置说明**
-- `cycles_per_batch: 3`：大循环包含3个小循环
-- `interval_ms: 5000`：小循环间隔5秒  
-- `batch_interval_ms: 20000`：大循环间隔20秒
-- 总周期：3×(30s+5s) + 20s = 125秒一个完整大循环
-3. **冲突防护**：
-   - 全局API请求锁：确保同一时刻只有一个getUpdates请求
-   - 自动取消机制：检测到并发请求时自动取消当前请求
-   - 应用层锁机制：防止多个拉取实例同时运行
+1. **触发拉取**：用户发送#tg指令
+2. **获取消息**：使用短轮询（5秒超时）快速获取新消息
+3. **处理转发**：立即下载媒体并转发到配置的QQ目标
+4. **清理资源**：转发完成后自动清理临时文件
 
 ### 技术实现要点
 - **模块入口**：`app/tg.js` 负责动态加载子模块
-- **核心实现**：`app/tg/monitor.js` 实现监听、下载、转发逻辑
+- **核心实现**：`app/tg/monitor.js` 实现指令触发、下载、转发逻辑
 - **配置管理**：`model/tg/tg-setting.js` 提供配置读写与热更新
 - **锅巴集成**：`guoba/schemas/tg.js` 提供可视化配置界面
 - **状态持久化**：使用 `data/tg/state.json` 记录已处理消息和偏移量
 - **临时存储**：媒体文件下载到 `data/temp/tg/<channel>/<YYYYMMDD>/`，转发成功后自动清理
+- **请求管理**：全局API请求锁确保同一时刻只有一个getUpdates请求
 
 ### 安全考虑
 - 所有对Telegram API的请求支持代理配置
 - Bot Token通过配置文件管理，不硬编码在代码中
 - 媒体文件仅临时存储，转发后自动清理
 - 支持文件大小限制，防止下载过大文件
+
+## 项目专家AI团队
+
+该项目已配置了8个专业AI智能体，专门针对不同模块和功能领域提供专家级支持：
+
+### 🚀 核心架构专家
+- **yunzai-plugin-architect** (sonnet): 插件模块化架构设计与优化专家
+- **yunzai-yaml-config-manager** (haiku): YAML配置管理与热重载专家
+
+### 📡 功能模块专家
+- **yunzai-telegram-integration-specialist** (sonnet): Telegram Bot API集成与转发专家
+- **yunzai-bilibili-parser-expert** (sonnet): B站内容解析与展示专家
+- **yunzai-entertainment-module-developer** (haiku): 娱乐功能与图片处理专家
+- **yunzai-automation-strategy-expert** (sonnet): 自动化策略与智能指令专家
+
+### 🛠️ 系统支持专家
+- **yunzai-media-processing-expert** (sonnet): 多媒体下载、转换与处理专家
+- **yunzai-guoba-configuration-specialist** (haiku): 锅巴配置界面与Schema专家
+
+### 团队协作模式
+每个智能体都有明确的职责边界和协作模式：
+- **专业分工**: 每个智能体专注特定领域，避免职责重叠
+- **智能协作**: 智能体间通过定义的输入输出关系进行协作
+- **模型优化**: 根据任务复杂度选择最适合的模型（sonnet/haiku）
+
+### 使用方式
+使用 `/ai "任务描述"` 命令可自动调用相应的专家智能体，例如：
+- `/ai "优化TG频道监听性能"` → yunzai-telegram-integration-specialist
+- `/ai "添加B站解析新功能"` → yunzai-bilibili-parser-expert  
+- `/ai "设计新的配置界面"` → yunzai-guoba-configuration-specialist

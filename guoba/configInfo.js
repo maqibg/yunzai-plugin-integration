@@ -29,13 +29,49 @@ export const config = {
     }
   ],
   getConfigData() {
-    // 获取当前配置数据
-    return {
-      'hs-kunkundinzhen': hsSetting.getConfig('hs-kunkundinzhen'),
-      'lotus-parser': lotusSetting.getConfig('lotus-parser'),
-      'rconsole': rconsoleSetting.getConfig('rconsole'),
-      'tg-config': tgSetting.getConfig()
+    // 获取当前配置数据，添加详细错误处理
+    const result = {}
+    
+    logger.info('[锅巴配置] 开始获取配置数据')
+    
+    try {
+      logger.info('[锅巴配置] 读取hs-kunkundinzhen配置...')
+      result['hs-kunkundinzhen'] = hsSetting.getConfig('hs-kunkundinzhen')
+      logger.info('[锅巴配置] hs-kunkundinzhen配置读取成功')
+    } catch (error) {
+      logger.error('[锅巴配置] 读取hs-kunkundinzhen配置失败:', error.message)
+      result['hs-kunkundinzhen'] = {}
     }
+    
+    try {
+      logger.info('[锅巴配置] 读取lotus-parser配置...')
+      result['lotus-parser'] = lotusSetting.getConfig('lotus-parser')
+      logger.info('[锅巴配置] lotus-parser配置读取成功')
+    } catch (error) {
+      logger.error('[锅巴配置] 读取lotus-parser配置失败:', error.message)
+      result['lotus-parser'] = {}
+    }
+    
+    try {
+      logger.info('[锅巴配置] 读取rconsole配置...')
+      result['rconsole'] = rconsoleSetting.getConfig('rconsole')
+      logger.info('[锅巴配置] rconsole配置读取成功')
+    } catch (error) {
+      logger.error('[锅巴配置] 读取rconsole配置失败:', error.message)
+      result['rconsole'] = {}
+    }
+    
+    try {
+      logger.info('[锅巴配置] 读取tg-config配置...')
+      result['tg-config'] = tgSetting.getConfig()
+      logger.info('[锅巴配置] tg-config配置读取成功')
+    } catch (error) {
+      logger.error('[锅巴配置] 读取tg-config配置失败:', error.message)
+      result['tg-config'] = {}
+    }
+    
+    logger.info('[锅巴配置] 配置数据获取完成')
+    return result
   },
   setConfigData(data, { Result }) {
     try {
