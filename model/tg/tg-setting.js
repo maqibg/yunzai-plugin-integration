@@ -8,6 +8,9 @@ import path from 'node:path'
 import YAML from 'yaml'
 import chokidar from 'chokidar'
 
+// 兼容logger
+const logger = globalThis.logger || console
+
 // 基于现有 setting 模板实现，适配 tg-config
 const _path = process.cwd()
 const pluginRoot = path.join(_path, 'plugins', 'yunzai-plugin-integration')

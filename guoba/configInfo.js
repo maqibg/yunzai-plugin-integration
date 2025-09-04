@@ -32,45 +32,45 @@ export const config = {
     // 获取当前配置数据，添加详细错误处理
     const result = {}
     
-    logger.info('[锅巴配置] 开始获取配置数据')
+    console.log('[锅巴配置] 开始获取配置数据')
     
     try {
-      logger.info('[锅巴配置] 读取hs-kunkundinzhen配置...')
+      console.log('[锅巴配置] 读取hs-kunkundinzhen配置...')
       result['hs-kunkundinzhen'] = hsSetting.getConfig('hs-kunkundinzhen')
-      logger.info('[锅巴配置] hs-kunkundinzhen配置读取成功')
+      console.log('[锅巴配置] hs-kunkundinzhen配置读取成功')
     } catch (error) {
-      logger.error('[锅巴配置] 读取hs-kunkundinzhen配置失败:', error.message)
+      console.error('[锅巴配置] 读取hs-kunkundinzhen配置失败:', error.message, error.stack)
       result['hs-kunkundinzhen'] = {}
     }
     
     try {
-      logger.info('[锅巴配置] 读取lotus-parser配置...')
+      console.log('[锅巴配置] 读取lotus-parser配置...')
       result['lotus-parser'] = lotusSetting.getConfig('lotus-parser')
-      logger.info('[锅巴配置] lotus-parser配置读取成功')
+      console.log('[锅巴配置] lotus-parser配置读取成功')
     } catch (error) {
-      logger.error('[锅巴配置] 读取lotus-parser配置失败:', error.message)
+      console.error('[锅巴配置] 读取lotus-parser配置失败:', error.message, error.stack)
       result['lotus-parser'] = {}
     }
     
     try {
-      logger.info('[锅巴配置] 读取rconsole配置...')
+      console.log('[锅巴配置] 读取rconsole配置...')
       result['rconsole'] = rconsoleSetting.getConfig('rconsole')
-      logger.info('[锅巴配置] rconsole配置读取成功')
+      console.log('[锅巴配置] rconsole配置读取成功')
     } catch (error) {
-      logger.error('[锅巴配置] 读取rconsole配置失败:', error.message)
+      console.error('[锅巴配置] 读取rconsole配置失败:', error.message, error.stack)
       result['rconsole'] = {}
     }
     
     try {
-      logger.info('[锅巴配置] 读取tg-config配置...')
+      console.log('[锅巴配置] 读取tg-config配置...')
       result['tg-config'] = tgSetting.getConfig()
-      logger.info('[锅巴配置] tg-config配置读取成功')
+      console.log('[锅巴配置] tg-config配置读取成功')
     } catch (error) {
-      logger.error('[锅巴配置] 读取tg-config配置失败:', error.message)
+      console.error('[锅巴配置] 读取tg-config配置失败:', error.message, error.stack)
       result['tg-config'] = {}
     }
     
-    logger.info('[锅巴配置] 配置数据获取完成')
+    console.log('[锅巴配置] 配置数据获取完成', JSON.stringify(result, null, 2))
     return result
   },
   setConfigData(data, { Result }) {
