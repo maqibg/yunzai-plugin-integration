@@ -7,9 +7,6 @@ import hsSetting from '../model/hs/hs-setting.js'
 import lotusSetting from '../model/lotus/lotus-setting.js'
 import rconsoleSetting from '../model/rconsole/rconsole-setting.js'
 
-// 导入logger
-const logger = Bot?.logger || console
-
 // 将所有 schema 导出一个统一的配置对象
 // key 即为后续在 config.yaml 中保存的键名
 export const config = {

@@ -91,7 +91,7 @@ export const tgSchema = {
           schemas: [
             { field: 'id', label: '频道ID', component: 'Input', componentProps: { placeholder: '-100xxxxxxxxxx（优先）' } },
             { field: 'username', label: '频道用户名', component: 'Input', componentProps: { placeholder: '@channel（可选）' } },
-            { field: 'types', label: '同步类型(逗号分隔)', component: 'Input', componentProps: { placeholder: 'text,photo,video,document,audio' } },
+            { field: 'types', label: '同步类型', component: 'Select', componentProps: { mode: 'multiple', options: [ { label: '文本', value: 'text' }, { label: '图片', value: 'photo' }, { label: '视频', value: 'video' }, { label: '文档', value: 'document' }, { label: '音频', value: 'audio' } ], placeholder: '选择要同步的消息类型' } },
             { field: 'target', label: 'QQ 目标', component: 'GSubForm', componentProps: { multiple: false, schemas: [ { field: 'type', label: '类型', component: 'Select', componentProps: { options: [ { label: '群', value: 'group' }, { label: '私聊', value: 'user' } ] } }, { field: 'id', label: 'ID', component: 'InputNumber', componentProps: { min: 1, placeholder: '群号或 QQ 号' } } ] } }
           ]
         }
