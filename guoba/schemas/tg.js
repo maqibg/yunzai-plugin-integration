@@ -8,7 +8,6 @@
 //   download.dir：下载目录（默认 plugins/.../data/temp/tg）
 //   channels：频道与 QQ 目标映射（可多条）
 // - 使用方式：发送 #tg 指令手动拉取频道消息并转发到QQ
-import tgSetting from '../../model/tg/tg-setting.js'
 
 // Schema不再预设配置值，而是通过getConfigData动态获取
 
