@@ -69,7 +69,7 @@ yunzai-plugin-integration 是一个为 Yunzai-Bot 设计的综合性插件，集
 cd Yunzai-Bot/plugins
 
 # 克隆插件
-git clone https://github.com/your-repo/yunzai-plugin-integration.git
+git clone https://github.com/maqibg/yunzai-plugin-integration.git
 
 # 进入插件目录
 cd yunzai-plugin-integration
