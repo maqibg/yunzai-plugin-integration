@@ -116,7 +116,7 @@ external_tools:
   # 留空时将从系统环境变量(PATH)中搜索
   # 建议使用绝对路径确保稳定性
   # Linux常见路径: /usr/bin/ffmpeg 或 /usr/local/bin/ffmpeg
-  ffmpegPath: "/usr/bin/ffmpeg"
+  ffmpegPath: ""
 
 # ---------------- 通用配置 ----------------
 general:

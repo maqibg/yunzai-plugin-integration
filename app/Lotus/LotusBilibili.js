@@ -1130,8 +1130,38 @@ export class LotusBilibiliParser extends plugin {
                     }
                 }
             } else {
-                logger.warn(`[Lotus插件][FFmpeg] 未配置ffmpegPath，将使用系统PATH查找`);
+                logger.warn(`[Lotus插件][FFmpeg] 未配置ffmpegPath，尝试常见路径`);
             }
+            
+            // 尝试常见的FFmpeg路径（Docker环境适配）
+            logger.info(`[Lotus插件][FFmpeg] 开始尝试常见FFmpeg路径`);
+            const commonPaths = [
+                '/usr/bin/ffmpeg',
+                '/usr/local/bin/ffmpeg', 
+                '/bin/ffmpeg',
+                'ffmpeg'  // 系统PATH
+            ];
+            
+            for (const testPath of commonPaths) {
+                try {
+                    logger.info(`[Lotus插件][FFmpeg] 测试路径: ${testPath}`);
+                    if (fs.existsSync(testPath)) {
+                        const stats = fs.statSync(testPath);
+                        logger.info(`[Lotus插件][FFmpeg] 路径存在，检查文件类型: ${stats.isFile()}`);
+                        if (stats.isFile()) {
+                            logger.info(`[Lotus插件][FFmpeg] 找到可用路径: ${testPath}`);
+                            return testPath;
+                        }
+                    } else {
+                        logger.info(`[Lotus插件][FFmpeg] 路径不存在: ${testPath}`);
+                    }
+                } catch (e) {
+                    logger.warn(`[Lotus插件][FFmpeg] 测试路径失败: ${testPath}, 错误: ${e.message}`);
+                }
+            }
+            
+            logger.warn(`[Lotus插件][FFmpeg] 所有常见路径都无法找到FFmpeg`);
+        }
         }
         return new Promise((resolve) => {
             const checkCmd = process.platform === 'win32' ? 'where' : 'which';
