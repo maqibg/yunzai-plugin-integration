@@ -32,8 +32,8 @@ dedup:
 
 # [存储] 下载和文件管理配置
 download:
-  dir: temp/biltg/tg       # 媒体文件临时下载目录（使用统一的temp/biltg目录）
-  max_file_mb: 20          # 单文件最大下载大小（MB），超过则跳过下载
+  dir: temp/biltg/tg          # 媒体文件临时下载目录
+  max_file_mb: 20             # 单文件最大下载大小（MB），超过则跳过下载
 
 # [日志] 输出级别控制
 logging:

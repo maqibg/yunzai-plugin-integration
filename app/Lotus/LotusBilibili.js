@@ -21,39 +21,13 @@ const COMMON_HEADER = {
 const redisBiliKey = "lotus:parser:bilibili_multi_page:";
 
 /**
- * 获取正确的临时目录基路径
- * 使用配置的workDir确保路径正确性
- * @returns {string} 临时目录基路径
+ * 获取B站临时目录路径
+ * @returns {string} 临时目录路径
  */
 function getTempBaseDir() {
     const cfg = setting.getConfig('lotus-parser');
     const workingDir = cfg?.external_tools?.workDir || process.cwd();
-    
-    // 在Docker环境中，优先尝试使用/tmp目录，权限更友好
-    const candidates = [
-        path.join(workingDir, 'temp', 'biltg'),  // 首选：配置目录下的temp
-        path.join('/tmp', 'yunzai-biltg'),       // 备选：系统tmp目录
-        path.join(workingDir, 'yunzai-temp')     // 兜底：工作目录下的临时目录
-    ];
-    
-    for (const candidate of candidates) {
-        try {
-            fs.mkdirSync(candidate, { recursive: true, mode: 0o755 });
-            // 测试写权限
-            const testFile = path.join(candidate, '.write-test');
-            fs.writeFileSync(testFile, 'test');
-            fs.unlinkSync(testFile);
-            logger.info(`[Lotus插件] 使用临时目录: ${candidate}`);
-            return candidate;
-        } catch (err) {
-            logger.warn(`[Lotus插件] 临时目录不可用: ${candidate}, 错误: ${err.message}`);
-        }
-    }
-    
-    // 如果都失败了，使用默认路径并记录警告
-    const fallback = path.join(workingDir, 'temp', 'biltg');
-    logger.error(`[Lotus插件] 所有临时目录都不可用，使用默认路径: ${fallback}`);
-    return fallback;
+    return path.join(workingDir, 'temp', 'biltg', 'bil');
 }
 
 export class LotusBilibiliParser extends plugin {
@@ -1065,7 +1039,6 @@ export class LotusBilibiliParser extends plugin {
                     const tempFileName = `video_${Date.now()}_${path.basename(filePath)}`;
                     napCatAccessiblePath = path.join(napCatTempDir, tempFileName);
                     await fs.promises.copyFile(filePath, napCatAccessiblePath);
-                    logger.info(`[Lotus插件] 已复制文件到NapCat可访问位置: ${napCatAccessiblePath}`);
                     filePath = napCatAccessiblePath; // 使用复制后的路径
                 } catch (copyError) {
                     logger.error(`[Lotus插件] 复制文件到NapCat目录失败: ${copyError.message}`);
@@ -1094,7 +1067,6 @@ export class LotusBilibiliParser extends plugin {
                 if (tempDir && fs.existsSync(tempDir)) {
                     try {
                         fs.rmSync(tempDir, { recursive: true, force: true });
-                        logger.info(`[Lotus插件] 已清理原始下载目录: ${tempDir}`);
                     } catch (cleanupErr) {
                         logger.warn(`[Lotus插件] 清理原始下载目录失败: ${cleanupErr.message}`);
                     }
@@ -1103,7 +1075,6 @@ export class LotusBilibiliParser extends plugin {
                 if (napCatAccessiblePath && fs.existsSync(napCatAccessiblePath)) {
                     try {
                         fs.unlinkSync(napCatAccessiblePath);
-                        logger.info(`[Lotus插件] 已清理NapCat临时文件: ${napCatAccessiblePath}`);
                     } catch (cleanupErr) {
                         logger.warn(`[Lotus插件] 清理NapCat临时文件失败: ${cleanupErr.message}`);
                     }
@@ -1116,7 +1087,6 @@ export class LotusBilibiliParser extends plugin {
             if (tempDir && fs.existsSync(tempDir)) {
                 try {
                     fs.rmSync(tempDir, { recursive: true, force: true });
-                    logger.info(`[Lotus插件] 发送失败，已立即清理原始下载目录: ${tempDir}`);
                 } catch (cleanupErr) {
                     logger.warn(`[Lotus插件] 清理原始下载目录失败: ${cleanupErr.message}`);
                 }
@@ -1124,7 +1094,6 @@ export class LotusBilibiliParser extends plugin {
             if (napCatAccessiblePath && fs.existsSync(napCatAccessiblePath)) {
                 try {
                     fs.unlinkSync(napCatAccessiblePath);
-                    logger.info(`[Lotus插件] 发送失败，已立即清理NapCat临时文件: ${napCatAccessiblePath}`);
                 } catch (cleanupErr) {
                     logger.warn(`[Lotus插件] 清理NapCat临时文件失败: ${cleanupErr.message}`);
                 }
@@ -1388,16 +1357,12 @@ export class LotusBilibiliParser extends plugin {
             : process.cwd();
         args.push('--work-dir', cwd);
         
-        // 确保下载目录存在且权限正确
+        // 确保下载目录存在
         try {
             await fs.promises.mkdir(cwd, { recursive: true, mode: 0o755 });
-            logger.info(`[Lotus插件][BBDown] 已确保下载目录存在: ${cwd}`);
         } catch (dirError) {
             logger.warn(`[Lotus插件][BBDown] 创建下载目录失败: ${dirError.message}`);
         }
-        
-        logger.info(`[Lotus插件][BBDown] 工作目录: ${workingDir}`);
-        logger.info(`[Lotus插件][BBDown] 下载目录: ${cwd}`);
 
         return new Promise((resolve, reject) => {
             // BBDown执行时使用配置的工作目录
