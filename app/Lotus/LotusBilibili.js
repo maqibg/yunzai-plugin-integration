@@ -1304,10 +1304,22 @@ export class LotusBilibiliParser extends plugin {
         if (pageNum) args.push('-p', String(pageNum));
         args.push('--dfn-priority', dfnPriority);
         if(extraArgsStr) args.push(...extraArgsStr.split(' '));
+        
+        // 使用配置的工作目录或者默认的下载目录
+        const workingDir = cfg.external_tools?.workDir 
+            ? cfg.external_tools.workDir 
+            : process.cwd();
         args.push('--work-dir', cwd);
+        
+        logger.info(`[Lotus插件][BBDown] 工作目录: ${workingDir}`);
+        logger.info(`[Lotus插件][BBDown] 下载目录: ${cwd}`);
 
         return new Promise((resolve, reject) => {
-            const bbdown = spawn(bbdownPath, args, { shell: false });
+            // BBDown执行时使用配置的工作目录
+            const bbdown = spawn(bbdownPath, args, { 
+                shell: false,
+                cwd: workingDir
+            });
             let output = '';
             bbdown.stdout.on('data', (data) => { output += data.toString(); });
             bbdown.stderr.on('data', (data) => { output += data.toString(); });

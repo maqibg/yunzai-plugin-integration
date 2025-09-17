@@ -244,6 +244,15 @@ export const lotusParserSchema = {
               componentProps: {
                 placeholder: '例如: /usr/bin/ffmpeg 或 D:/Apps/ffmpeg.exe'
               }
+            },
+            {
+              field: 'workDir',
+              label: '工作目录',
+              bottomHelpMessage: 'BBDown和FFmpeg执行时的工作目录，用于解决路径识别错误问题。留空时使用Yunzai根目录',
+              component: 'Input',
+              componentProps: {
+                placeholder: '例如: /root/Yunzai 或 D:/Bot/Yunzai'
+              }
             }
           ]
         }

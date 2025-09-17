@@ -117,6 +117,13 @@ external_tools:
   # 建议使用绝对路径确保稳定性
   # Linux常见路径: /usr/bin/ffmpeg 或 /usr/local/bin/ffmpeg
   ffmpegPath: ""
+  
+  # [工作路径] BBDown和FFmpeg执行时的工作目录
+  # 用于解决某些环境下BBDown工具路径识别错误的问题
+  # 留空时使用Yunzai根目录，建议设置为Yunzai的完整绝对路径
+  # 例如："/root/Yunzai" 或 "D:\Bot\Yunzai"
+  # 注意：必须使用系统实际的绝对路径，且路径不能包含中文字符
+  workDir: ""
 
 # ---------------- 通用配置 ----------------
 general:
