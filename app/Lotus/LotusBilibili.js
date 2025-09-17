@@ -1085,8 +1085,19 @@ export class LotusBilibiliParser extends plugin {
         
         // 对于其他工具（如FFmpeg），保持原有逻辑
         const exe = process.platform === 'win32' ? `${command}.exe` : command;
-        if (cfg.external_tools && cfg.external_tools.ffmpegPath && command === 'ffmpeg') {
-            if (fs.existsSync(cfg.external_tools.ffmpegPath)) return cfg.external_tools.ffmpegPath;
+        if (command === 'ffmpeg' && cfg.external_tools) {
+            logger.info(`[Lotus插件][FFmpeg] 查找FFmpeg工具`);
+            if (cfg.external_tools.ffmpegPath) {
+                logger.info(`[Lotus插件][FFmpeg] 配置路径: ${cfg.external_tools.ffmpegPath}`);
+                const exists = fs.existsSync(cfg.external_tools.ffmpegPath);
+                logger.info(`[Lotus插件][FFmpeg] 文件存在检查: ${cfg.external_tools.ffmpegPath} -> ${exists}`);
+                if (exists) {
+                    logger.info(`[Lotus插件][FFmpeg] 使用配置路径: ${cfg.external_tools.ffmpegPath}`);
+                    return cfg.external_tools.ffmpegPath;
+                }
+            } else {
+                logger.warn(`[Lotus插件][FFmpeg] 未配置ffmpegPath，将使用系统PATH查找`);
+            }
         }
         return new Promise((resolve) => {
             const checkCmd = process.platform === 'win32' ? 'where' : 'which';
