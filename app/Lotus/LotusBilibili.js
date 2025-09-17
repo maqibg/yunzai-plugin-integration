@@ -1087,13 +1087,47 @@ export class LotusBilibiliParser extends plugin {
         const exe = process.platform === 'win32' ? `${command}.exe` : command;
         if (command === 'ffmpeg' && cfg.external_tools) {
             logger.info(`[Lotus插件][FFmpeg] 查找FFmpeg工具`);
+            logger.info(`[Lotus插件][FFmpeg] 当前工作目录: ${process.cwd()}`);
+            logger.info(`[Lotus插件][FFmpeg] Node.js版本: ${process.version}`);
+            logger.info(`[Lotus插件][FFmpeg] 系统平台: ${process.platform}`);
+            
             if (cfg.external_tools.ffmpegPath) {
                 logger.info(`[Lotus插件][FFmpeg] 配置路径: ${cfg.external_tools.ffmpegPath}`);
-                const exists = fs.existsSync(cfg.external_tools.ffmpegPath);
-                logger.info(`[Lotus插件][FFmpeg] 文件存在检查: ${cfg.external_tools.ffmpegPath} -> ${exists}`);
-                if (exists) {
-                    logger.info(`[Lotus插件][FFmpeg] 使用配置路径: ${cfg.external_tools.ffmpegPath}`);
-                    return cfg.external_tools.ffmpegPath;
+                
+                // Docker环境下路径检查增强
+                try {
+                    const stats = fs.statSync(cfg.external_tools.ffmpegPath);
+                    logger.info(`[Lotus插件][FFmpeg] 文件统计信息: 大小=${stats.size}, 可执行=${stats.mode & parseInt('111', 8)}`);
+                    if (stats.isFile()) {
+                        logger.info(`[Lotus插件][FFmpeg] 使用配置路径: ${cfg.external_tools.ffmpegPath}`);
+                        return cfg.external_tools.ffmpegPath;
+                    } else {
+                        logger.warn(`[Lotus插件][FFmpeg] 配置路径不是文件: ${cfg.external_tools.ffmpegPath}`);
+                    }
+                } catch (error) {
+                    logger.warn(`[Lotus插件][FFmpeg] 配置路径无法访问: ${cfg.external_tools.ffmpegPath}, 错误: ${error.message}`);
+                }
+                
+                // 尝试常见的FFmpeg路径（Docker环境适配）
+                const commonPaths = [
+                    '/usr/bin/ffmpeg',
+                    '/usr/local/bin/ffmpeg', 
+                    '/bin/ffmpeg',
+                    'ffmpeg'  // 系统PATH
+                ];
+                
+                for (const testPath of commonPaths) {
+                    try {
+                        if (fs.existsSync(testPath)) {
+                            const stats = fs.statSync(testPath);
+                            if (stats.isFile()) {
+                                logger.info(`[Lotus插件][FFmpeg] 找到可用路径: ${testPath}`);
+                                return testPath;
+                            }
+                        }
+                    } catch (e) {
+                        logger.debug(`[Lotus插件][FFmpeg] 测试路径失败: ${testPath}`);
+                    }
                 }
             } else {
                 logger.warn(`[Lotus插件][FFmpeg] 未配置ffmpegPath，将使用系统PATH查找`);
