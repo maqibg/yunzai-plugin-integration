@@ -286,6 +286,23 @@ export const lotusParserSchema = {
             }
           ]
         }
+      },
+      {
+        field: 'debug',
+        label: '调试配置',
+        component: 'GSubForm',
+        componentProps: {
+          multiple: false,
+          schemas: [
+            {
+              field: 'showToolsInfo',
+              label: '显示工具调试信息',
+              bottomHelpMessage: '是否显示BBDown和FFmpeg的详细路径、版本等调试信息（仅排查问题时开启）',
+              component: 'Switch',
+              componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' }
+            }
+          ]
+        }
       }
     ]
   }

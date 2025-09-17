@@ -1031,25 +1031,7 @@ export class LotusBilibiliParser extends plugin {
                 return e.reply('配置文件加载失败，请联系管理员');
             }
             
-            // Docker环境处理：确保NapCat能访问文件
-            // 如果文件不在标准temp目录下，需要复制到NapCat可访问的位置
-            let napCatAccessiblePath = null;
-            const workingDir = cfg.external_tools?.workDir || process.cwd();
-            const napCatTempDir = path.join(workingDir, 'temp');
-            
-            if (!filePath.startsWith(napCatTempDir)) {
-                // 文件在/tmp等目录，需要复制到NapCat可访问的位置
-                try {
-                    await fs.promises.mkdir(napCatTempDir, { recursive: true });
-                    const tempFileName = `video_${Date.now()}_${path.basename(filePath)}`;
-                    napCatAccessiblePath = path.join(napCatTempDir, tempFileName);
-                    await fs.promises.copyFile(filePath, napCatAccessiblePath);
-                    filePath = napCatAccessiblePath; // 使用复制后的路径
-                } catch (copyError) {
-                    logger.error(`[Lotus插件] 复制文件到NapCat目录失败: ${copyError.message}`);
-                    // 继续使用原路径，可能仍有机会成功
-                }
-            }
+            // Docker环境处理：删除文件复制逻辑，直接使用原文件路径
             
             if (videoSize > cfg.general.videoSizeLimit) {
                 await e.reply(`视频大小(${videoSize}MB)超过${cfg.general.videoSizeLimit}MB限制，转为上传群文件。`);
@@ -1068,20 +1050,11 @@ export class LotusBilibiliParser extends plugin {
             
             // 发送成功后延迟清理，给QQ上传时间
             setTimeout(() => {
-                // 清理原始下载目录
                 if (tempDir && fs.existsSync(tempDir)) {
                     try {
                         fs.rmSync(tempDir, { recursive: true, force: true });
                     } catch (cleanupErr) {
-                        logger.warn(`[Lotus插件] 清理原始下载目录失败: ${cleanupErr.message}`);
-                    }
-                }
-                // 清理NapCat临时文件
-                if (napCatAccessiblePath && fs.existsSync(napCatAccessiblePath)) {
-                    try {
-                        fs.unlinkSync(napCatAccessiblePath);
-                    } catch (cleanupErr) {
-                        logger.warn(`[Lotus插件] 清理NapCat临时文件失败: ${cleanupErr.message}`);
+                        logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
                     }
                 }
             }, 300000); // 大文件需要更长时间，改为5分钟
@@ -1093,14 +1066,7 @@ export class LotusBilibiliParser extends plugin {
                 try {
                     fs.rmSync(tempDir, { recursive: true, force: true });
                 } catch (cleanupErr) {
-                    logger.warn(`[Lotus插件] 清理原始下载目录失败: ${cleanupErr.message}`);
-                }
-            }
-            if (napCatAccessiblePath && fs.existsSync(napCatAccessiblePath)) {
-                try {
-                    fs.unlinkSync(napCatAccessiblePath);
-                } catch (cleanupErr) {
-                    logger.warn(`[Lotus插件] 清理NapCat临时文件失败: ${cleanupErr.message}`);
+                    logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
                 }
             }
             throw err;
@@ -1117,14 +1083,20 @@ export class LotusBilibiliParser extends plugin {
         if (command === 'BBDown' && cfg.external_tools && cfg.external_tools.bbdownPath) {
             const platform = cfg.external_tools.platform || 'win64';
             const bbdownPath = cfg.external_tools.bbdownPath[platform];
-            logger.info(`[Lotus插件][BBDown] 平台: ${platform}, 配置路径: ${bbdownPath}`);
+            if (cfg.debug?.showToolsInfo) {
+                logger.info(`[Lotus插件][BBDown] 平台: ${platform}, 配置路径: ${bbdownPath}`);
+            }
             if (bbdownPath) {
                 const exists = fs.existsSync(bbdownPath);
-                logger.info(`[Lotus插件][BBDown] 文件存在检查: ${bbdownPath} -> ${exists}`);
+                if (cfg.debug?.showToolsInfo) {
+                    logger.info(`[Lotus插件][BBDown] 文件存在检查: ${bbdownPath} -> ${exists}`);
+                }
                 if (exists) {
                     // 确保返回绝对路径，避免在不同工作目录下找不到文件
                     const absolutePath = path.isAbsolute(bbdownPath) ? bbdownPath : path.resolve(process.cwd(), bbdownPath);
-                    logger.info(`[Lotus插件][BBDown] 使用配置路径: ${absolutePath}`);
+                    if (cfg.debug?.showToolsInfo) {
+                        logger.info(`[Lotus插件][BBDown] 使用配置路径: ${absolutePath}`);
+                    }
                     return absolutePath;
                 } else {
                     logger.warn(`[Lotus插件][BBDown] 配置的文件不存在: ${bbdownPath}`);
@@ -1137,20 +1109,28 @@ export class LotusBilibiliParser extends plugin {
         // 对于其他工具（如FFmpeg），保持原有逻辑
         const exe = process.platform === 'win32' ? `${command}.exe` : command;
         if (command === 'ffmpeg' && cfg.external_tools) {
-            logger.info(`[Lotus插件][FFmpeg] 查找FFmpeg工具`);
-            logger.info(`[Lotus插件][FFmpeg] 当前工作目录: ${process.cwd()}`);
-            logger.info(`[Lotus插件][FFmpeg] Node.js版本: ${process.version}`);
-            logger.info(`[Lotus插件][FFmpeg] 系统平台: ${process.platform}`);
+            if (cfg.debug?.showToolsInfo) {
+                logger.info(`[Lotus插件][FFmpeg] 查找FFmpeg工具`);
+                logger.info(`[Lotus插件][FFmpeg] 当前工作目录: ${process.cwd()}`);
+                logger.info(`[Lotus插件][FFmpeg] Node.js版本: ${process.version}`);
+                logger.info(`[Lotus插件][FFmpeg] 系统平台: ${process.platform}`);
+            }
             
             if (cfg.external_tools.ffmpegPath) {
-                logger.info(`[Lotus插件][FFmpeg] 配置路径: ${cfg.external_tools.ffmpegPath}`);
+                if (cfg.debug?.showToolsInfo) {
+                    logger.info(`[Lotus插件][FFmpeg] 配置路径: ${cfg.external_tools.ffmpegPath}`);
+                }
                 
                 // Docker环境下路径检查增强
                 try {
                     const stats = fs.statSync(cfg.external_tools.ffmpegPath);
-                    logger.info(`[Lotus插件][FFmpeg] 文件统计信息: 大小=${stats.size}, 可执行=${stats.mode & parseInt('111', 8)}`);
+                    if (cfg.debug?.showToolsInfo) {
+                        logger.info(`[Lotus插件][FFmpeg] 文件统计信息: 大小=${stats.size}, 可执行=${stats.mode & parseInt('111', 8)}`);
+                    }
                     if (stats.isFile()) {
-                        logger.info(`[Lotus插件][FFmpeg] 使用配置路径: ${cfg.external_tools.ffmpegPath}`);
+                        if (cfg.debug?.showToolsInfo) {
+                            logger.info(`[Lotus插件][FFmpeg] 使用配置路径: ${cfg.external_tools.ffmpegPath}`);
+                        }
                         return cfg.external_tools.ffmpegPath;
                     } else {
                         logger.warn(`[Lotus插件][FFmpeg] 配置路径不是文件: ${cfg.external_tools.ffmpegPath}`);
