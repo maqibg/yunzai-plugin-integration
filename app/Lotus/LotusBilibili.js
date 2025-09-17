@@ -1162,7 +1162,6 @@ export class LotusBilibiliParser extends plugin {
             
             logger.warn(`[Lotus插件][FFmpeg] 所有常见路径都无法找到FFmpeg`);
         }
-        }
         return new Promise((resolve) => {
             const checkCmd = process.platform === 'win32' ? 'where' : 'which';
             const child = spawn(checkCmd, [command]);
