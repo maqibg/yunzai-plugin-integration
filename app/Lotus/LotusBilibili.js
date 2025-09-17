@@ -10,6 +10,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pluginRoot = path.resolve(process.cwd(), 'plugins', 'yunzai-plugin-integration');
 const dataDir = path.join(pluginRoot, 'data', 'bilibili');
+// 使用统一的temp/biltg目录，确保NapCat能够访问临时文件
+const tempBaseDir = path.join(process.cwd(), 'temp', 'biltg');
 const BILI_VIDEO_INFO_API = "http://api.bilibili.com/x/web-interface/view";
 const BILI_PLAY_STREAM_API = "https://api.bilibili.com/x/player/playurl";
 const BILI_STREAM_INFO_API = "https://api.live.bilibili.com/room/v1/Room/get_info";
@@ -105,7 +107,7 @@ export class LotusBilibiliParser extends plugin {
         const { url, videoInfo } = JSON.parse(dataJson);
         const selection = e.msg.replace(/^#p\s*/, '').trim().toLowerCase();
 
-        const tempPath = path.join(dataDir, `${e.group_id || e.user_id}_${Date.now()}`);
+        const tempPath = path.join(tempBaseDir, `bili_${e.group_id || e.user_id}_${Date.now()}`);
 
         try {
             const pageNum = parseInt(selection);
@@ -224,7 +226,7 @@ export class LotusBilibiliParser extends plugin {
             }
         }
 
-        const tempPath = path.join(dataDir, `${e.group_id || e.user_id}_${Date.now()}`);
+        const tempPath = path.join(tempBaseDir, `bili_${e.group_id || e.user_id}_${Date.now()}`);
         try {
             await fs.promises.mkdir(tempPath, { recursive: true });
             if (cfg.bilibili.useBBDown) {
