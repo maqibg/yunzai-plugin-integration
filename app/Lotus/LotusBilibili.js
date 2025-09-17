@@ -25,9 +25,14 @@ const redisBiliKey = "lotus:parser:bilibili_multi_page:";
  * @returns {string} 临时目录路径
  */
 function getTempBaseDir() {
-    const cfg = setting.getConfig('lotus-parser');
-    const workingDir = cfg?.external_tools?.workDir || process.cwd();
-    return path.join(workingDir, 'temp', 'biltg', 'bil');
+    const tempDir = path.join(pluginRoot, 'temp', 'bil');
+    // 确保目录存在
+    try {
+        fs.mkdirSync(tempDir, { recursive: true, mode: 0o755 });
+    } catch (err) {
+        // 忽略创建失败
+    }
+    return tempDir;
 }
 
 export class LotusBilibiliParser extends plugin {

@@ -38,7 +38,10 @@ function buildDownloadDir(baseDir, channelKey) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
-  const dir = path.join(process.cwd(), baseDir || path.join('temp', 'biltg', 'tg'), String(channelKey), `${y}${m}${d}`)
+  
+  const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration');
+  const defaultDir = path.join(pluginRoot, 'temp', 'tg');
+  const dir = path.join(process.cwd(), baseDir || defaultDir, String(channelKey), `${y}${m}${d}`)
   ensureDir(dir)
   return dir
 }
@@ -358,7 +361,7 @@ async function pullTelegramMessages(e) {
       proxy,
       batch = { size: 8 },
       dedup = { ttl_days: 7 },
-      download = { dir: path.join('temp', 'biltg', 'tg') },
+      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'temp', 'tg') },
       channels = []
     } = cfg || {}
 
