@@ -1052,6 +1052,27 @@ export class LotusBilibiliParser extends plugin {
                 return e.reply('配置文件加载失败，请联系管理员');
             }
             
+            // Docker环境处理：确保NapCat能访问文件
+            // 如果文件不在标准temp目录下，需要复制到NapCat可访问的位置
+            let napCatAccessiblePath = null;
+            const workingDir = cfg.external_tools?.workDir || process.cwd();
+            const napCatTempDir = path.join(workingDir, 'temp');
+            
+            if (!filePath.startsWith(napCatTempDir)) {
+                // 文件在/tmp等目录，需要复制到NapCat可访问的位置
+                try {
+                    await fs.promises.mkdir(napCatTempDir, { recursive: true });
+                    const tempFileName = `video_${Date.now()}_${path.basename(filePath)}`;
+                    napCatAccessiblePath = path.join(napCatTempDir, tempFileName);
+                    await fs.promises.copyFile(filePath, napCatAccessiblePath);
+                    logger.info(`[Lotus插件] 已复制文件到NapCat可访问位置: ${napCatAccessiblePath}`);
+                    filePath = napCatAccessiblePath; // 使用复制后的路径
+                } catch (copyError) {
+                    logger.error(`[Lotus插件] 复制文件到NapCat目录失败: ${copyError.message}`);
+                    // 继续使用原路径，可能仍有机会成功
+                }
+            }
+            
             if (videoSize > cfg.general.videoSizeLimit) {
                 await e.reply(`视频大小(${videoSize}MB)超过${cfg.general.videoSizeLimit}MB限制，转为上传群文件。`);
                 await this.uploadFile(e, filePath, fileName);
@@ -1069,12 +1090,22 @@ export class LotusBilibiliParser extends plugin {
             
             // 发送成功后延迟清理，给QQ上传时间
             setTimeout(() => {
+                // 清理原始下载目录
                 if (tempDir && fs.existsSync(tempDir)) {
                     try {
                         fs.rmSync(tempDir, { recursive: true, force: true });
-                        logger.info(`[Lotus插件] 已清理临时目录: ${tempDir}`);
+                        logger.info(`[Lotus插件] 已清理原始下载目录: ${tempDir}`);
                     } catch (cleanupErr) {
-                        logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
+                        logger.warn(`[Lotus插件] 清理原始下载目录失败: ${cleanupErr.message}`);
+                    }
+                }
+                // 清理NapCat临时文件
+                if (napCatAccessiblePath && fs.existsSync(napCatAccessiblePath)) {
+                    try {
+                        fs.unlinkSync(napCatAccessiblePath);
+                        logger.info(`[Lotus插件] 已清理NapCat临时文件: ${napCatAccessiblePath}`);
+                    } catch (cleanupErr) {
+                        logger.warn(`[Lotus插件] 清理NapCat临时文件失败: ${cleanupErr.message}`);
                     }
                 }
             }, 300000); // 大文件需要更长时间，改为5分钟
@@ -1085,9 +1116,17 @@ export class LotusBilibiliParser extends plugin {
             if (tempDir && fs.existsSync(tempDir)) {
                 try {
                     fs.rmSync(tempDir, { recursive: true, force: true });
-                    logger.info(`[Lotus插件] 发送失败，已立即清理临时目录: ${tempDir}`);
+                    logger.info(`[Lotus插件] 发送失败，已立即清理原始下载目录: ${tempDir}`);
                 } catch (cleanupErr) {
-                    logger.warn(`[Lotus插件] 清理临时目录失败: ${cleanupErr.message}`);
+                    logger.warn(`[Lotus插件] 清理原始下载目录失败: ${cleanupErr.message}`);
+                }
+            }
+            if (napCatAccessiblePath && fs.existsSync(napCatAccessiblePath)) {
+                try {
+                    fs.unlinkSync(napCatAccessiblePath);
+                    logger.info(`[Lotus插件] 发送失败，已立即清理NapCat临时文件: ${napCatAccessiblePath}`);
+                } catch (cleanupErr) {
+                    logger.warn(`[Lotus插件] 清理NapCat临时文件失败: ${cleanupErr.message}`);
                 }
             }
             throw err;
