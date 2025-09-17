@@ -1303,7 +1303,9 @@ export class LotusBilibiliParser extends plugin {
         
         // 获取FFmpeg路径
         const ffmpegPath = await this.findCommandPath('ffmpeg');
-        logger.info(`[Lotus插件][BBDown] 检测到FFmpeg路径: ${ffmpegPath || '未找到'}`);
+        if (cfg.debug?.showToolsInfo) {
+            logger.info(`[Lotus插件][BBDown] 检测到FFmpeg路径: ${ffmpegPath || '未找到'}`);
+        }
         
         const resolutionMap = {
             120: '8K 超高清',
@@ -1325,7 +1327,9 @@ export class LotusBilibiliParser extends plugin {
                 ? ffmpegPath 
                 : path.resolve(process.cwd(), ffmpegPath);
             args.push('--ffmpeg-path', absoluteFFmpegPath);
-            logger.info(`[Lotus插件][BBDown] 使用FFmpeg绝对路径: ${absoluteFFmpegPath}`);
+            if (cfg.debug?.showToolsInfo) {
+                logger.info(`[Lotus插件][BBDown] 使用FFmpeg绝对路径: ${absoluteFFmpegPath}`);
+            }
         }
         
         const { sessdata, source } = await this.getSessData();
