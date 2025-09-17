@@ -679,8 +679,12 @@ export class LotusBilibiliParser extends plugin {
                 const smartQuality = cfg.bilibili.smartQuality;
                 const timeout = (smartQuality?.precheckTimeout || 15) * 1000;
                 
-                const toolsPath = cfg?.external_tools?.toolsPath;
-                let bbdownPath = toolsPath ? path.join(toolsPath, 'BBDown.exe') : 'BBDown';
+                // 根据配置的平台选择BBDown路径
+                const platform = cfg?.external_tools?.platform || 'win64';
+                let bbdownPath = 'BBDown';
+                if (cfg?.external_tools?.bbdownPath && cfg.external_tools.bbdownPath[platform]) {
+                    bbdownPath = cfg.external_tools.bbdownPath[platform];
+                }
                 
                 // 构建BBDown命令参数
                 const resolutionMap = {
@@ -810,15 +814,11 @@ export class LotusBilibiliParser extends plugin {
         return new Promise((resolve) => {
             try {
                 const cfg = setting.getConfig('lotus-parser');
-                const toolsPath = cfg?.external_tools?.toolsPath;
+                // 根据配置的平台选择BBDown路径
+                const platform = cfg?.external_tools?.platform || 'win64';
                 let bbdownPath = 'BBDown';
-                
-                if (toolsPath) {
-                    // 如果配置了工具路径，使用配置的路径
-                    bbdownPath = path.join(toolsPath, 'BBDown.exe');
-                } else {
-                    // 否则尝试使用系统PATH中的BBDown
-                    bbdownPath = 'BBDown';
+                if (cfg?.external_tools?.bbdownPath && cfg.external_tools.bbdownPath[platform]) {
+                    bbdownPath = cfg.external_tools.bbdownPath[platform];
                 }
                 
                 // 使用BBDown的 --only-show-info 参数获取视频信息
@@ -1056,10 +1056,19 @@ export class LotusBilibiliParser extends plugin {
             logger.error('[Lotus插件] 配置文件加载失败，请检查 lotus-parser.yaml');
             return e.reply('配置文件加载失败，请联系管理员');
         }
+        // 根据配置的平台选择对应的BBDown路径
+        if (command === 'BBDown' && cfg.external_tools && cfg.external_tools.bbdownPath) {
+            const platform = cfg.external_tools.platform || 'win64';
+            const bbdownPath = cfg.external_tools.bbdownPath[platform];
+            if (bbdownPath && fs.existsSync(bbdownPath)) {
+                return bbdownPath;
+            }
+        }
+        
+        // 对于其他工具（如FFmpeg），保持原有逻辑
         const exe = process.platform === 'win32' ? `${command}.exe` : command;
-        if (cfg.external_tools.toolsPath) {
-            const cmdPath = path.join(cfg.external_tools.toolsPath, exe);
-            if (fs.existsSync(cmdPath)) return cmdPath;
+        if (cfg.external_tools && cfg.external_tools.ffmpegPath && command === 'ffmpeg') {
+            if (fs.existsSync(cfg.external_tools.ffmpegPath)) return cfg.external_tools.ffmpegPath;
         }
         return new Promise((resolve) => {
             const checkCmd = process.platform === 'win32' ? 'where' : 'which';

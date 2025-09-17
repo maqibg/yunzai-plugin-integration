@@ -197,12 +197,52 @@ export const lotusParserSchema = {
           multiple: false,
           schemas: [
             {
-              field: 'toolsPath',
-              label: '外部工具路径',
-              bottomHelpMessage: '存放BBDown.exe, ffmpeg.exe等工具的文件夹绝对路径',
+              field: 'platform',
+              label: '系统平台',
+              bottomHelpMessage: '当前运行的系统平台，用于自动选择对应的BBDown可执行文件',
+              component: 'Select',
+              componentProps: {
+                options: [
+                  { label: 'Windows 64位', value: 'win64' },
+                  { label: 'Linux 64位', value: 'linux64' }
+                ]
+              }
+            },
+            {
+              field: 'bbdownPath',
+              label: 'BBDown路径配置',
+              component: 'GSubForm',
+              componentProps: {
+                multiple: false,
+                schemas: [
+                  {
+                    field: 'win64',
+                    label: 'Windows路径',
+                    bottomHelpMessage: 'Windows系统下BBDown.exe的完整路径',
+                    component: 'Input',
+                    componentProps: {
+                      placeholder: 'plugins/yunzai-plugin-integration/winx64/BBDown.exe'
+                    }
+                  },
+                  {
+                    field: 'linux64',
+                    label: 'Linux路径',
+                    bottomHelpMessage: 'Linux系统下BBDown可执行文件的完整路径',
+                    component: 'Input',
+                    componentProps: {
+                      placeholder: 'plugins/yunzai-plugin-integration/linux64/BBDown'
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              field: 'ffmpegPath',
+              label: 'FFmpeg路径',
+              bottomHelpMessage: 'FFmpeg工具路径（可选），留空时从系统环境变量搜索',
               component: 'Input',
               componentProps: {
-                placeholder: '例如: D:/Apps/ffmpeg'
+                placeholder: '例如: /usr/bin/ffmpeg 或 D:/Apps/ffmpeg.exe'
               }
             }
           ]
