@@ -682,8 +682,12 @@ export class LotusBilibiliParser extends plugin {
                 // 根据配置的平台选择BBDown路径
                 const platform = cfg?.external_tools?.platform || 'win64';
                 let bbdownPath = 'BBDown';
+                logger.info(`[Lotus插件][BBDown预检查] 平台: ${platform}`);
                 if (cfg?.external_tools?.bbdownPath && cfg.external_tools.bbdownPath[platform]) {
                     bbdownPath = cfg.external_tools.bbdownPath[platform];
+                    logger.info(`[Lotus插件][BBDown预检查] 使用配置路径: ${bbdownPath}`);
+                } else {
+                    logger.warn(`[Lotus插件][BBDown预检查] 未配置路径，使用默认: ${bbdownPath}`);
                 }
                 
                 // 构建BBDown命令参数
@@ -817,8 +821,12 @@ export class LotusBilibiliParser extends plugin {
                 // 根据配置的平台选择BBDown路径
                 const platform = cfg?.external_tools?.platform || 'win64';
                 let bbdownPath = 'BBDown';
+                logger.info(`[Lotus插件][BBDown信息查询] 平台: ${platform}`);
                 if (cfg?.external_tools?.bbdownPath && cfg.external_tools.bbdownPath[platform]) {
                     bbdownPath = cfg.external_tools.bbdownPath[platform];
+                    logger.info(`[Lotus插件][BBDown信息查询] 使用配置路径: ${bbdownPath}`);
+                } else {
+                    logger.warn(`[Lotus插件][BBDown信息查询] 未配置路径，使用默认: ${bbdownPath}`);
                 }
                 
                 // 使用BBDown的 --only-show-info 参数获取视频信息
@@ -1060,8 +1068,18 @@ export class LotusBilibiliParser extends plugin {
         if (command === 'BBDown' && cfg.external_tools && cfg.external_tools.bbdownPath) {
             const platform = cfg.external_tools.platform || 'win64';
             const bbdownPath = cfg.external_tools.bbdownPath[platform];
-            if (bbdownPath && fs.existsSync(bbdownPath)) {
-                return bbdownPath;
+            logger.info(`[Lotus插件][BBDown] 平台: ${platform}, 配置路径: ${bbdownPath}`);
+            if (bbdownPath) {
+                const exists = fs.existsSync(bbdownPath);
+                logger.info(`[Lotus插件][BBDown] 文件存在检查: ${bbdownPath} -> ${exists}`);
+                if (exists) {
+                    logger.info(`[Lotus插件][BBDown] 使用配置路径: ${bbdownPath}`);
+                    return bbdownPath;
+                } else {
+                    logger.warn(`[Lotus插件][BBDown] 配置的文件不存在: ${bbdownPath}`);
+                }
+            } else {
+                logger.warn(`[Lotus插件][BBDown] 未配置 ${platform} 平台的路径`);
             }
         }
         

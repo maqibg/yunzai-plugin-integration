@@ -7,7 +7,8 @@
       "WebSearch",
       "mcp__context7__resolve-library-id",
       "Bash(find:*)",
-      "Bash(copy \"D:\\Code\\codeSpace\\yunzai插件\\yunzai-plugin-integration\\config\\default\\default-hs-kunkundinzhen.yaml\" \"D:\\Code\\codeSpace\\yunzai插件\\yunzai-plugin-integration\\config\\hs-kunkundinzhen.yaml\")"
+      "Bash(copy \"D:\\Code\\codeSpace\\yunzai插件\\yunzai-plugin-integration\\config\\default\\default-hs-kunkundinzhen.yaml\" \"D:\\Code\\codeSpace\\yunzai插件\\yunzai-plugin-integration\\config\\hs-kunkundinzhen.yaml\")",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
