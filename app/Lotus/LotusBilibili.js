@@ -1289,8 +1289,12 @@ export class LotusBilibiliParser extends plugin {
         
         // 如果找到FFmpeg，添加--ffmpeg-path参数
         if (ffmpegPath) {
-            args.push('--ffmpeg-path', ffmpegPath);
-            logger.info(`[Lotus插件][BBDown] 使用FFmpeg路径: ${ffmpegPath}`);
+            // 确保使用绝对路径避免BBDown路径混淆
+            const absoluteFFmpegPath = path.isAbsolute(ffmpegPath) 
+                ? ffmpegPath 
+                : path.resolve(process.cwd(), ffmpegPath);
+            args.push('--ffmpeg-path', absoluteFFmpegPath);
+            logger.info(`[Lotus插件][BBDown] 使用FFmpeg绝对路径: ${absoluteFFmpegPath}`);
         }
         
         const { sessdata, source } = await this.getSessData();
