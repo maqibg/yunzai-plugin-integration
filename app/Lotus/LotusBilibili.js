@@ -10,8 +10,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const pluginRoot = path.resolve(process.cwd(), 'plugins', 'yunzai-plugin-integration');
 const dataDir = path.join(pluginRoot, 'data', 'bilibili');
-// 使用统一的temp/biltg目录，确保NapCat能够访问临时文件
-const tempBaseDir = path.join(process.cwd(), 'temp', 'biltg');
 const BILI_VIDEO_INFO_API = "http://api.bilibili.com/x/web-interface/view";
 const BILI_PLAY_STREAM_API = "https://api.bilibili.com/x/player/playurl";
 const BILI_STREAM_INFO_API = "https://api.live.bilibili.com/room/v1/Room/get_info";
@@ -21,6 +19,17 @@ const COMMON_HEADER = {
     'Referer': 'https://www.bilibili.com/',
 };
 const redisBiliKey = "lotus:parser:bilibili_multi_page:";
+
+/**
+ * 获取正确的临时目录基路径
+ * 使用配置的workDir确保路径正确性
+ * @returns {string} 临时目录基路径
+ */
+function getTempBaseDir() {
+    const cfg = setting.getConfig('lotus-parser');
+    const workingDir = cfg?.external_tools?.workDir || process.cwd();
+    return path.join(workingDir, 'temp', 'biltg');
+}
 
 export class LotusBilibiliParser extends plugin {
     constructor() {
@@ -107,7 +116,7 @@ export class LotusBilibiliParser extends plugin {
         const { url, videoInfo } = JSON.parse(dataJson);
         const selection = e.msg.replace(/^#p\s*/, '').trim().toLowerCase();
 
-        const tempPath = path.join(tempBaseDir, `bili_${e.group_id || e.user_id}_${Date.now()}`);
+        const tempPath = path.join(getTempBaseDir(), `bili_${e.group_id || e.user_id}_${Date.now()}`);
 
         try {
             const pageNum = parseInt(selection);
@@ -226,7 +235,7 @@ export class LotusBilibiliParser extends plugin {
             }
         }
 
-        const tempPath = path.join(tempBaseDir, `bili_${e.group_id || e.user_id}_${Date.now()}`);
+        const tempPath = path.join(getTempBaseDir(), `bili_${e.group_id || e.user_id}_${Date.now()}`);
         try {
             await fs.promises.mkdir(tempPath, { recursive: true });
             if (cfg.bilibili.useBBDown) {
@@ -1075,8 +1084,10 @@ export class LotusBilibiliParser extends plugin {
                 const exists = fs.existsSync(bbdownPath);
                 logger.info(`[Lotus插件][BBDown] 文件存在检查: ${bbdownPath} -> ${exists}`);
                 if (exists) {
-                    logger.info(`[Lotus插件][BBDown] 使用配置路径: ${bbdownPath}`);
-                    return bbdownPath;
+                    // 确保返回绝对路径，避免在不同工作目录下找不到文件
+                    const absolutePath = path.isAbsolute(bbdownPath) ? bbdownPath : path.resolve(process.cwd(), bbdownPath);
+                    logger.info(`[Lotus插件][BBDown] 使用配置路径: ${absolutePath}`);
+                    return absolutePath;
                 } else {
                     logger.warn(`[Lotus插件][BBDown] 配置的文件不存在: ${bbdownPath}`);
                 }
