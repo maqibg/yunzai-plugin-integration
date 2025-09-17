@@ -1206,6 +1206,11 @@ export class LotusBilibiliParser extends plugin {
         }
         const bbdownPath = await this.findCommandPath('BBDown');
         if (!bbdownPath) throw new Error("未找到BBDown，请检查环境配置");
+        
+        // 获取FFmpeg路径
+        const ffmpegPath = await this.findCommandPath('ffmpeg');
+        logger.info(`[Lotus插件][BBDown] 检测到FFmpeg路径: ${ffmpegPath || '未找到'}`);
+        
         const resolutionMap = {
             120: '8K 超高清',
             116: '1080P 60帧',
@@ -1218,6 +1223,12 @@ export class LotusBilibiliParser extends plugin {
         };
         const dfnPriority = resolutionMap[cfg.bilibili.resolution] || String(cfg.bilibili.resolution);
         const args = [url];
+        
+        // 如果找到FFmpeg，添加--ffmpeg-path参数
+        if (ffmpegPath) {
+            args.push('--ffmpeg-path', ffmpegPath);
+            logger.info(`[Lotus插件][BBDown] 使用FFmpeg路径: ${ffmpegPath}`);
+        }
         
         const { sessdata, source } = await this.getSessData();
         if (source === 'config' && sessdata) {

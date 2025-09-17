@@ -115,7 +115,8 @@ external_tools:
   # 用于音视频合并、格式转换、压缩处理
   # 留空时将从系统环境变量(PATH)中搜索
   # 建议使用绝对路径确保稳定性
-  ffmpegPath: ""
+  # Linux常见路径: /usr/bin/ffmpeg 或 /usr/local/bin/ffmpeg
+  ffmpegPath: "/usr/bin/ffmpeg"
 
 # ---------------- 通用配置 ----------------
 general:
