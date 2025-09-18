@@ -21,11 +21,12 @@ try {
     // 若不存在 tg 子目录则跳过加载，便于按需启用
     logger.warn('[yunzai-plugin-integration] tg 目录不存在，跳过加载')
   } else {
-    // 读取 tg 目录内所有 .js 文件，逐个动态导入
-    const files = fs.readdirSync(tgDir).filter(f => f.endsWith('.js'))
-    let ret = await Promise.allSettled(files.map(f => import(`./tg/${f}`)))
-    for (let i in files) {
-      const name = files[i].replace('.js', '')
+    // 只加载 monitor.js，其他文件是工具类不需要注册为plugin
+    const pluginFiles = ['monitor.js']  // 只有这个文件包含plugin类
+    
+    let ret = await Promise.allSettled(pluginFiles.map(f => import(`./tg/${f}`)))
+    for (let i in pluginFiles) {
+      const name = pluginFiles[i].replace('.js', '')
       if (ret[i].status !== 'fulfilled') {
         logger.error(`[yunzai-plugin-integration] tg 子模块载入失败：${name}`)
         logger.error(ret[i].reason)
@@ -34,9 +35,13 @@ try {
       const exp = ret[i].value
       const keys = Object.keys(exp)
       if (keys.length > 0) {
-        // 以 tg- 前缀注册模块，避免与其他模块键名冲突
-        apps[`tg-${name.toLowerCase()}`] = exp[keys[0]]
-        logger.info(`[yunzai-plugin-integration] tg 功能加载成功: ${name}`)
+        // 查找默认导出的plugin类
+        const pluginClass = exp.default
+        if (pluginClass && typeof pluginClass === 'function') {
+          // 以 tg- 前缀注册模块，避免与其他模块键名冲突
+          apps[`tg-${name.toLowerCase()}`] = pluginClass
+          logger.info(`[yunzai-plugin-integration] tg 功能加载成功: ${name}`)
+        }
       }
     }
   }
