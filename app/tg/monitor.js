@@ -109,6 +109,22 @@ async function sendForwardToTarget(eCtx, target, list) {
 }
 
 // 为目标构造一个用于 makeForwardMsg 的上下文事件（最小化模拟）
+function getChannelStateKey(channel) {
+  if (!channel) return undefined
+  const raw = channel.state_key ?? channel.id ?? channel.channel_id ?? channel.username ?? channel.channel_username
+  if (raw === undefined || raw === null) return undefined
+  const value = String(raw).trim()
+  if (!value) return undefined
+  if (value.startsWith('id:') || value.startsWith('name:')) return value
+  if (value.startsWith('@')) return `name:${value.slice(1)}`
+  if (/^https?:\/\//i.test(value)) {
+    const parts = value.replace(/\/$/, '').split('/')
+    const last = parts[parts.length - 1]
+    return last ? `name:${last.replace(/^@/, '')}` : undefined
+  }
+  if (/^-?\d+$/.test(value)) return `id:${value}`
+  return `name:${value.replace(/^@/, '')}`
+}
 function buildEventCtxForTarget(target) {
   if (target.type === 'group') {
     return { isGroup: true, group_id: target.id, group: Bot.pickGroup(target.id), bot: Bot }
@@ -181,10 +197,24 @@ async function pullTelegramMessages(e) {
     const state = loadState()
     
     // 准备频道配置，包含last_message_id信息
-    const channelsWithState = channels.map(channel => ({
-      ...channel,
-      last_message_id: state.channel_states?.[channel.id]?.last_message_id || 0
-    }))
+    const channelsWithState = channels.map(channel => {
+      const stateKey = getChannelStateKey(channel)
+      let lastMessageId = stateKey ? (state.channel_states?.[stateKey]?.last_message_id || 0) : 0
+      if (!lastMessageId) {
+        const legacyKey = channel.id || channel.channel_id || channel.username || channel.channel_username
+        if (legacyKey) {
+          const legacyEntry = state.channel_states?.[String(legacyKey)]
+          if (legacyEntry?.last_message_id) {
+            lastMessageId = legacyEntry.last_message_id
+          }
+        }
+      }
+      return {
+        ...channel,
+        state_key: stateKey || null,
+        last_message_id: lastMessageId
+      }
+    })
 
     // 优先尝试云端API拉取
     if (cloud_teelebot.enabled) {
@@ -210,7 +240,7 @@ async function pullTelegramMessages(e) {
               
               if (processedResults.success) {
                 // 更新状态
-                updateChannelStates(state, cloudResult.channels)
+                updateChannelStates(state, channelsWithState, cloudResult.channels)
                 saveState(state)
                 
                 await e.reply(`[TG] ✅ 云端模式拉取完成，共处理 ${processedResults.totalMessages} 条消息`)
@@ -821,17 +851,72 @@ function getFileExtension(fileType) {
 /**
  * 更新频道状态
  */
-function updateChannelStates(state, channelResults) {
+function updateChannelStates(state, requestChannels, channelResults) {
   if (!state.channel_states) {
     state.channel_states = {}
   }
 
-  for (const result of channelResults) {
-    if (result.success && result.latest_message_id) {
-      state.channel_states[result.channel_id] = {
-        last_message_id: result.latest_message_id,
-        last_update: Date.now()
+  const channelMap = new Map()
+  if (Array.isArray(requestChannels)) {
+    for (const channel of requestChannels) {
+      if (!channel) continue
+      const primaryKey = getChannelStateKey(channel)
+      const numericId = channel.id ?? channel.channel_id
+      const username = channel.username ?? channel.channel_username
+      if (primaryKey) channelMap.set(primaryKey, channel)
+      if (numericId !== undefined && numericId !== null && String(numericId).trim()) {
+        const idKey = String(numericId)
+        channelMap.set(`id:${idKey}`, channel)
+        channelMap.set(idKey, channel)
       }
+      if (username) {
+        const nameKey = String(username).replace(/^@/, '')
+        if (nameKey) channelMap.set(`name:${nameKey}`, channel)
+      }
+    }
+  }
+
+  if (!Array.isArray(channelResults)) {
+    return
+  }
+
+  for (const result of channelResults) {
+    if (!result?.success || !result.latest_message_id) continue
+
+    const candidates = []
+    if (result.state_key) candidates.push(String(result.state_key))
+    if (result.requested_identifier) {
+      const reqKey = getChannelStateKey({ state_key: result.requested_identifier })
+      if (reqKey) candidates.push(reqKey)
+      candidates.push(String(result.requested_identifier))
+    }
+    if (result.channel_id) {
+      const resolvedId = String(result.channel_id)
+      candidates.push(`id:${resolvedId}`)
+      candidates.push(resolvedId)
+    }
+
+    const stateKey = candidates.find(key => key && channelMap.has(key)) || candidates.find(key => key)
+    if (!stateKey) continue
+
+    const entry = {
+      last_message_id: result.latest_message_id,
+      last_update: Date.now(),
+      resolved_channel_id: result.channel_id || null,
+      requested_identifier: result.requested_identifier || null
+    }
+
+    state.channel_states[stateKey] = entry
+
+    if (result.channel_id) {
+      const resolvedId = String(result.channel_id)
+      state.channel_states[`id:${resolvedId}`] = entry
+      state.channel_states[resolvedId] = entry
+    }
+
+    if (result.requested_identifier) {
+      const requested = String(result.requested_identifier)
+      state.channel_states[requested] = entry
     }
   }
 }
@@ -856,3 +941,8 @@ export default class TgMonitor extends plugin {
     return await pullTelegramMessages(e)
   }
 }
+
+
+
+
+

@@ -540,7 +540,9 @@ class CloudTelebotAPI {
 
       const requestData = {
         channels: channels.map(channel => ({
-          channel_id: channel.id || channel.channel_id,
+          channel_id: channel.id || channel.channel_id || null,
+          channel_username: channel.username || channel.channel_username || null,
+          state_key: channel.state_key || null,
           last_message_id: channel.last_message_id || 0,
           limit: channel.limit || 50
         }))
@@ -611,3 +613,4 @@ class CloudTelebotAPI {
 
 // 导出单例实例
 export default new CloudTelebotAPI()
+
