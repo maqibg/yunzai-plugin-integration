@@ -194,25 +194,32 @@ async function pullTelegramMessages(e) {
         const CloudAPI = (await import('./cloud-api.js')).default
         
         if (CloudAPI.isAvailable()) {
-          const cloudResult = await CloudAPI.fetchChannelMessages(channelsWithState)
-          
-          if (cloudResult.success && cloudResult.summary.total_messages > 0) {
-            logger.info(`[TG] ✅ 云端API拉取成功: ${cloudResult.summary.total_messages} 条消息`)
+          // 先进行健康检查，确保API服务器真正可用
+          const isHealthy = await CloudAPI.healthCheck()
+          if (!isHealthy) {
+            logger.warn('[TG] 云端API健康检查失败，回退到本地模式')
+          } else {
+            logger.info('[TG] 云端API健康检查通过，开始拉取消息')
+            const cloudResult = await CloudAPI.fetchChannelMessages(channelsWithState)
             
-            // 处理云端拉取的消息
-            const processedResults = await processCloudMessages(cloudResult, cfg, e)
-            
-            if (processedResults.success) {
-              // 更新状态
-              updateChannelStates(state, cloudResult.channels)
-              saveState(state)
+            if (cloudResult.success && cloudResult.summary.total_messages > 0) {
+              logger.info(`[TG] ✅ 云端API拉取成功: ${cloudResult.summary.total_messages} 条消息`)
               
-              await e.reply(`[TG] ✅ 云端模式拉取完成，共处理 ${processedResults.totalMessages} 条消息`)
+              // 处理云端拉取的消息
+              const processedResults = await processCloudMessages(cloudResult, cfg, e)
+              
+              if (processedResults.success) {
+                // 更新状态
+                updateChannelStates(state, cloudResult.channels)
+                saveState(state)
+                
+                await e.reply(`[TG] ✅ 云端模式拉取完成，共处理 ${processedResults.totalMessages} 条消息`)
+                return true
+              }
+            } else {
+              await e.reply('[TG] 云端API：无新消息')
               return true
             }
-          } else {
-            await e.reply('[TG] 云端API：无新消息')
-            return true
           }
         } else {
           logger.warn('[TG] 云端API不可用，回退到本地模式')

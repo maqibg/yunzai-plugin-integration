@@ -49,7 +49,7 @@ class HybridFileDownloader {
       const cloudConfig = config.cloud_teelebot || {}
       
       // 检查是否应该使用云端API
-      if (this.shouldUseCloudAPI(post, cloudConfig)) {
+      if (await this.shouldUseCloudAPI(post, cloudConfig)) {
         logger.info(`[HybridDownloader] 🌐 使用云端优先模式处理消息 ${messageId}`)
         
         try {
@@ -99,18 +99,19 @@ class HybridFileDownloader {
   }
 
   /**
-   * 判断是否应该使用云端API
+   * 判断是否应该使用云端API（异步版本）
    * 修改为云端优先策略：所有消息都先尝试云端API，失败后回退本地
    */
-  shouldUseCloudAPI(post, cloudConfig) {
+  async shouldUseCloudAPI(post, cloudConfig) {
     // 检查云端API是否启用和可用
     if (!cloudConfig.enabled || !this.cloudAPI.isAvailable()) {
       logger.debug('[HybridDownloader] 云端API未启用或不可用，使用本地模式')
       return false
     }
 
-    // 检查健康状态
-    if (this.cloudAPI.healthStatus === false) {
+    // 主动进行健康检查
+    const isHealthy = await this.cloudAPI.healthCheck()
+    if (!isHealthy) {
       logger.debug('[HybridDownloader] 云端API健康检查失败，使用本地模式')
       return false
     }
@@ -125,7 +126,7 @@ class HybridFileDownloader {
     }
 
     // 云端优先策略：只要API可用且文件未超限，都优先使用云端
-    logger.debug('[HybridDownloader] 云端API可用，优先使用云端处理')
+    logger.debug('[HybridDownloader] 云端API健康检查通过，优先使用云端处理')
     return true
   }
 
