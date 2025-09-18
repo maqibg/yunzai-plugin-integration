@@ -8,6 +8,7 @@
 # 核心功能：
 # - 指令触发拉取：#tg / #tg拉取 / #拉取tg
 # - 多媒体下载：支持文本/图片/视频/文档/音频
+# - 云端优先：所有消息优先通过云端API处理，失败后回退本地
 # - 智能转发：按QQ消息格式转换，支持合并转发
 # - 去重机制：避免重复转发历史消息
 # - 代理支持：所有Telegram API请求均可走代理
@@ -32,8 +33,29 @@ dedup:
 
 # [存储] 下载和文件管理配置
 download:
-  dir: plugins/yunzai-plugin-integration/temp/tg  # 媒体文件临时下载目录
+  dir: plugins/yunzai-plugin-integration/data/temp/tg  # 媒体文件临时下载目录
   max_file_mb: 20                               # 单文件最大下载大小（MB），超过则跳过下载
+  auto_cleanup: true                            # 是否启用自动清理
+  cleanup_days: 7                               # 清理超过指定天数的文件
+
+# [云端API] 分布式下载配置（云端优先策略：所有消息都先尝试云端API）
+cloud_teelebot:
+  enabled: false                                # 是否启用云端teelebot API（需要单独部署）
+  api_endpoint: "http://localhost:31955"         # 云端API服务地址
+  auth_token: ""                                # API认证token（与teelebot FileLinker插件配置保持一致）
+  timeout: 30                                   # API请求超时时间（秒）
+  retry_count: 3                                # 失败重试次数
+  retry_delay: 5                                # 重试延迟（秒）
+  health_check_cache: 30                        # 健康检查缓存时间（秒）
+  max_batch_size: 10                            # 批量请求最大文件数
+  download_timeout: 300                         # 文件下载超时时间（秒）
+  max_file_size: 2147483648                     # 云端最大文件大小（字节，默认2GB）
+  max_concurrent_downloads: 3                   # 最大并发下载数
+  fallback_to_local: true                       # 云端失败时是否回退到本地下载
+  force_cloud: false                            # 是否强制使用云端模式（已默认云端优先）
+  local_max_mb: 20                              # 本地下载最大大小（MB）
+  cloud_max_mb: 2000                            # 云端下载最大大小（MB）
+  cloud_preferred_types: [video, document]     # 优选云端下载的文件类型（已改为全部优先）
 
 # [日志] 输出级别控制
 logging:

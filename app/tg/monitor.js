@@ -1,5 +1,6 @@
-// TG 频道监听与转发核心模块 - 指令触发版本
+// TG 频道监听与转发核心模块 - 指令触发版本 + 混合下载器
 // - 通过#tg指令手动触发获取频道新消息，将文本/图片/视频下载到本地
+// - 集成混合下载器，支持云端API和本地回退策略
 // - 按配置转发到 QQ 群/私聊
 // - 支持代理、去重、媒体下载等功能
 import plugin from '../../../../lib/plugins/plugin.js'
@@ -9,6 +10,12 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'node:fs'
 import path from 'node:path'
 import tgSetting from '../../model/tg/tg-setting.js'
+import HybridFileDownloader from './hybrid-downloader.js'
+
+// 兼容logger
+const logger = globalThis.logger || console
+// segment用于构建QQ消息段
+const segment = globalThis.segment || {}
 
 // 工具：确保目录存在
 function ensureDir(dir) {
@@ -29,23 +36,6 @@ function loadState() {
 }
 function saveState(s) { try { ensureDir(stateDir); fs.writeFileSync(stateFile, JSON.stringify(s, null, 2), 'utf8') } catch (e) {} }
 
-// 工具：路径转 file:// 统一斜杠
-function toFileUrl(p) { return 'file://' + p.replace(/\\/g, '/') }
-
-// 工具：按通道与日期生成保存路径
-function buildDownloadDir(baseDir, channelKey) {
-  const date = new Date()
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  
-  const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration');
-  const defaultDir = path.join(pluginRoot, 'temp', 'tg');
-  const dir = path.join(process.cwd(), baseDir || defaultDir, String(channelKey), `${y}${m}${d}`)
-  ensureDir(dir)
-  return dir
-}
-
 // 构造代理 Agent：仅支持 http/https（如配置为其它协议，将回退为 https）
 function buildAgents(proxy) {
   if (!proxy || proxy.enable === false) return {}
@@ -56,198 +46,6 @@ function buildAgents(proxy) {
   }
   const agent = new HttpsProxyAgent(url)
   return { httpAgent: agent, httpsAgent: agent }
-}
-
-// 通过 TG API 下载文件到本地
-async function downloadFile(fileUrl, savePath, agents) {
-  const writer = fs.createWriteStream(savePath)
-  const resp = await axios.get(fileUrl, { responseType: 'stream', ...agents })
-  await new Promise((resolve, reject) => {
-    resp.data.pipe(writer)
-    writer.on('finish', resolve)
-    writer.on('error', reject)
-  })
-}
-
-// 内容过滤器
-function filterContent(text, config) {
-  if (!text || typeof text !== 'string') return text
-  
-  const filters = config?.filters
-  if (!filters?.enable) return text
-  
-  let filteredText = text
-  
-  // 过滤Telegram域名
-  if (filters.remove_telegram_domains && Array.isArray(filters.telegram_domains)) {
-    for (const domain of filters.telegram_domains) {
-      // 创建正则：匹配 https://domain 或 http://domain，保留路径
-      const regex = new RegExp(`https?://${domain.replace('.', '\\.')}`, 'gi')
-      filteredText = filteredText.replace(regex, 'https://')
-    }
-  }
-  
-  return filteredText
-}
-
-// 解析消息成为一个 QQ 节点（含文本 + 图片/视频占位）与对应临时文件路径
-async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, maxBytes, config) {
-  const node = []
-  const files = []
-  const channelKey = post.chat?.id || post.chat?.username || 'unknown'
-  const saveBase = buildDownloadDir(baseDir, channelKey)
-
-  // 文本（text 或 caption）- 应用过滤器
-  const text = post.text || post.caption
-  if (text) {
-    const filteredText = filterContent(text, config)
-    node.push(filteredText)
-  }
-
-  // 图片：从同一张不同规格中，选择不超过上限的最大一张
-  if (Array.isArray(post.photo) && post.photo.length) {
-    let best = null
-    // 按尺寸由小到大排序，取不超限的最大项
-    const sorted = [...post.photo].sort((a, b) => (a.file_size || 0) - (b.file_size || 0))
-    for (const p of sorted) {
-      if (!maxBytes || !p.file_size || p.file_size <= maxBytes) best = p
-    }
-    if (!best) {
-      node.push('(图片超过大小上限，已跳过)')
-      return { node, files }
-    }
-    const fileId = best.file_id
-    // getFile
-    const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-    const filePath = getFile?.data?.result?.file_path
-    if (filePath) {
-      const ext = path.extname(filePath) || '.jpg'
-      const savePath = path.join(saveBase, `m${post.message_id}_p0${ext}`)
-      const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-      await downloadFile(fileUrl, savePath, agents)
-      node.push(segment.image(toFileUrl(savePath)))
-      files.push(savePath)
-    }
-  }
-
-  // 视频：≤上限时直传QQ，超过上限仅提示
-  if (post.video) {
-    if (maxBytes && post.video.file_size && post.video.file_size > maxBytes) {
-      node.push('(视频超过大小上限，已跳过)')
-      return { node, files }
-    }
-    const fileId = post.video.file_id
-    const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-    const filePath = getFile?.data?.result?.file_path
-    if (filePath) {
-      const ext = path.extname(filePath) || '.mp4'
-      const savePath = path.join(saveBase, `m${post.message_id}_v0${ext}`)
-      const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-      await downloadFile(fileUrl, savePath, agents)
-      // 尝试以视频格式发送到QQ，失败则回退为文本提示
-      try {
-        if (typeof segment.video === 'function') {
-          node.push(segment.video(toFileUrl(savePath)))
-        } else {
-          node.push(`(视频已保存: ${savePath})`)
-        }
-      } catch (e) {
-        node.push(`(视频已保存: ${savePath})`)
-      }
-      files.push(savePath)
-    }
-  }
-
-  // 文件文档：下载后作为文件或图片发送（≤ 上限）
-  if (post.document) {
-    const doc = post.document
-    if (!maxBytes || !doc.file_size || doc.file_size <= maxBytes) {
-      const fileId = doc.file_id
-      const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-      const filePath = getFile?.data?.result?.file_path
-      if (filePath) {
-        // 计算扩展名
-        let ext = path.extname(filePath)
-        if (!ext) {
-          const nameExt = path.extname(doc.file_name || '')
-          ext = nameExt || '.bin'
-        }
-        const savePath = path.join(saveBase, `m${post.message_id}_d0${ext}`)
-        const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-        await downloadFile(fileUrl, savePath, agents)
-        // 根据类型选择片段：图片优先按图片段发送；视频按视频段；其他按文件段；都不支持则回退文本
-        const mime = doc.mime_type || ''
-        const lowerExt = (ext || '').toLowerCase()
-        try {
-          if (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(lowerExt)) {
-            node.push(segment.image(toFileUrl(savePath)))
-          } else if (mime.startsWith('video/') || ['.mp4', '.mov', '.mkv', '.avi', '.webm'].includes(lowerExt)) {
-            if (typeof segment.video === 'function') {
-              node.push(segment.video(toFileUrl(savePath)))
-            } else {
-              node.push(`(视频已保存: ${savePath})`)
-            }
-          } else {
-            // 尝试作为文件发送，失败则文本提示
-            if (typeof segment.file === 'function') {
-              node.push(segment.file(toFileUrl(savePath)))
-            } else {
-              node.push(`(文件已保存: ${doc.file_name || path.basename(savePath)})`)
-            }
-          }
-        } catch (e) {
-          // 任何发送失败都回退为文本提示
-          node.push(`(文件已保存: ${doc.file_name || path.basename(savePath)})`)
-        }
-        files.push(savePath)
-      }
-    } else {
-      node.push('(文件超过大小上限，已跳过)')
-    }
-  }
-
-  return { node, files }
-}
-
-// 处理音频消息
-async function handleAudio(token, proxy, baseDir, post, agents, maxBytes) {
-  const node = []
-  const files = []
-  if (!post.audio && !post.voice) return { node, files }
-  
-  const audio = post.audio || post.voice
-  const channelKey = post.chat?.id || post.chat?.username || 'unknown'
-  const saveBase = buildDownloadDir(baseDir, channelKey)
-  
-  if (maxBytes && audio.file_size && audio.file_size > maxBytes) {
-    node.push('(音频超过大小上限，已跳过)')
-    return { node, files }
-  }
-  
-  const fileId = audio.file_id
-  const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-  const filePath = getFile?.data?.result?.file_path
-  if (filePath) {
-    const ext = path.extname(filePath) || (post.voice ? '.ogg' : '.mp3')
-    const savePath = path.join(saveBase, `m${post.message_id}_a0${ext}`)
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-    await downloadFile(fileUrl, savePath, agents)
-    
-    try {
-      if (typeof segment.record === 'function') {
-        node.push(segment.record(toFileUrl(savePath)))
-      } else if (typeof segment.file === 'function') {
-        node.push(segment.file(toFileUrl(savePath)))
-      } else {
-        node.push(`(音频已保存: ${audio.title || audio.file_name || path.basename(savePath)})`)
-      }
-    } catch (e) {
-      node.push(`(音频已保存: ${audio.title || audio.file_name || path.basename(savePath)})`)
-    }
-    files.push(savePath)
-  }
-  
-  return { node, files }
 }
 
 // 组装并发送合并转发到目标；目标 target: { type: 'group'|'user', id: number }
@@ -351,6 +149,7 @@ class TelegramRequestManager {
 }
 
 const telegramAPI = new TelegramRequestManager()
+const hybridDownloader = new HybridFileDownloader()
 
 // 指令触发的TG消息拉取和转发
 async function pullTelegramMessages(e) {
@@ -361,8 +160,9 @@ async function pullTelegramMessages(e) {
       proxy,
       batch = { size: 8 },
       dedup = { ttl_days: 7 },
-      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'temp', 'tg') },
-      channels = []
+      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'data', 'temp', 'tg') },
+      channels = [],
+      cloud_teelebot = {}
     } = cfg || {}
 
     if (!token) {
@@ -377,8 +177,63 @@ async function pullTelegramMessages(e) {
 
     logger.info('[TG] 开始手动拉取TG消息...')
     
-    const agents = buildAgents(proxy)
+    // 读取状态
     const state = loadState()
+    
+    // 准备频道配置，包含last_message_id信息
+    const channelsWithState = channels.map(channel => ({
+      ...channel,
+      last_message_id: state.channel_states?.[channel.id]?.last_message_id || 0
+    }))
+
+    // 优先尝试云端API拉取
+    if (cloud_teelebot.enabled) {
+      try {
+        logger.info('[TG] 🌐 尝试使用云端API拉取消息...')
+        
+        const CloudAPI = (await import('./cloud-api.js')).default
+        
+        if (CloudAPI.isAvailable()) {
+          const cloudResult = await CloudAPI.fetchChannelMessages(channelsWithState)
+          
+          if (cloudResult.success && cloudResult.summary.total_messages > 0) {
+            logger.info(`[TG] ✅ 云端API拉取成功: ${cloudResult.summary.total_messages} 条消息`)
+            
+            // 处理云端拉取的消息
+            const processedResults = await processCloudMessages(cloudResult, cfg, e)
+            
+            if (processedResults.success) {
+              // 更新状态
+              updateChannelStates(state, cloudResult.channels)
+              saveState(state)
+              
+              await e.reply(`[TG] ✅ 云端模式拉取完成，共处理 ${processedResults.totalMessages} 条消息`)
+              return true
+            }
+          } else {
+            await e.reply('[TG] 云端API：无新消息')
+            return true
+          }
+        } else {
+          logger.warn('[TG] 云端API不可用，回退到本地模式')
+        }
+        
+      } catch (error) {
+        logger.warn(`[TG] 云端API拉取失败: ${error.message}`)
+        
+        if (!cloud_teelebot.fallback_to_local) {
+          await e.reply(`[TG] 云端拉取失败且禁用本地回退: ${error.message}`)
+          return false
+        }
+        
+        logger.info('[TG] 🔄 回退到本地拉取模式')
+      }
+    }
+
+    // 本地拉取模式（原有逻辑）
+    logger.info('[TG] 📱 使用本地模式拉取消息...')
+    
+    const agents = buildAgents(proxy)
     const offset = state.last_update_id ? state.last_update_id + 1 : undefined
 
     // 拉取更新（短轮询，快速获取）
@@ -463,11 +318,16 @@ async function pullTelegramMessages(e) {
         }
         const maxBytes = Number((download && download.max_file_mb ? download.max_file_mb : 20)) * 1024 * 1024
         
-        // 处理主要媒体内容
-        const { node: mainNode, files: mainFiles } = await buildNodeFromChannelPost(token, proxy, download.dir, post, agents, maxBytes, cfg)
-        
-        // 处理音频内容
-        const { node: audioNode, files: audioFiles } = await handleAudio(token, proxy, download.dir, post, agents, maxBytes)
+        // 使用混合下载器处理媒体内容
+        const downloadResult = await hybridDownloader.downloadPost(
+          token, 
+          proxy, 
+          download.dir, 
+          post, 
+          agents, 
+          maxBytes, 
+          cfg
+        )
         
         if (post.media_group_id) {
           if (!groupByTarget.has(tKey)) groupByTarget.set(tKey, new Map())
@@ -476,8 +336,8 @@ async function pullTelegramMessages(e) {
           if (!groups.has(gKey)) groups.set(gKey, { node: [], files: [], hasText: false })
           const group = groups.get(gKey)
           
-          const allNodes = [...mainNode, ...audioNode]
-          const allFiles = [...mainFiles, ...audioFiles]
+          const allNodes = downloadResult.node || []
+          const allFiles = downloadResult.files || []
           
           if (allNodes.length === 0 && allFiles.length === 0) {
             processed[dedupKey] = nowTs
@@ -494,8 +354,8 @@ async function pullTelegramMessages(e) {
           group.files.push(...allFiles)
           processed[dedupKey] = nowTs
         } else {
-          const allNodes = [...mainNode, ...audioNode]
-          const allFiles = [...mainFiles, ...audioFiles]
+          const allNodes = downloadResult.node || []
+          const allFiles = downloadResult.files || []
           
           if (!allNodes.length && allFiles.length === 0) {
             processed[dedupKey] = nowTs
@@ -552,6 +412,420 @@ async function pullTelegramMessages(e) {
     logger.error(`[TG] 拉取失败: ${msg}`)
     await e.reply('TG 拉取失败，请查看日志')
     return false
+  }
+}
+
+// 导出原有函数供混合下载器回退使用
+export async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, maxBytes, config) {
+  const node = []
+  const files = []
+  const channelKey = post.chat?.id || post.chat?.username || 'unknown'
+  
+  // 确保目录存在
+  const date = new Date()
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  
+  const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration');
+  const defaultDir = path.join(pluginRoot, 'data', 'temp', 'tg');
+  const saveBase = path.join(process.cwd(), baseDir || defaultDir, String(channelKey), `${y}${m}${d}`)
+  ensureDir(saveBase)
+
+  // 内容过滤器
+  function filterContent(text, config) {
+    if (!text || typeof text !== 'string') return text
+    
+    const filters = config?.filters
+    if (!filters?.enable) return text
+    
+    let filteredText = text
+    
+    // 过滤Telegram域名
+    if (filters.remove_telegram_domains && Array.isArray(filters.telegram_domains)) {
+      for (const domain of filters.telegram_domains) {
+        const regex = new RegExp(`https?://${domain.replace('.', '\\.')}`, 'gi')
+        filteredText = filteredText.replace(regex, 'https://')
+      }
+    }
+    
+    return filteredText
+  }
+
+  // 下载文件工具函数
+  async function downloadFile(fileUrl, savePath, agents) {
+    const writer = fs.createWriteStream(savePath)
+    const resp = await axios.get(fileUrl, { responseType: 'stream', ...agents })
+    await new Promise((resolve, reject) => {
+      resp.data.pipe(writer)
+      writer.on('finish', resolve)
+      writer.on('error', reject)
+    })
+  }
+
+  // 路径转file:// URL格式
+  function toFileUrl(p) { return 'file://' + p.replace(/\\/g, '/') }
+
+  // 文本（text 或 caption）- 应用过滤器
+  const text = post.text || post.caption
+  if (text) {
+    const filteredText = filterContent(text, config)
+    node.push(filteredText)
+  }
+
+  // 图片：从同一张不同规格中，选择不超过上限的最大一张
+  if (Array.isArray(post.photo) && post.photo.length) {
+    let best = null
+    const sorted = [...post.photo].sort((a, b) => (a.file_size || 0) - (b.file_size || 0))
+    for (const p of sorted) {
+      if (!maxBytes || !p.file_size || p.file_size <= maxBytes) best = p
+    }
+    if (!best) {
+      node.push('(图片超过大小上限，已跳过)')
+      return { node, files }
+    }
+    const fileId = best.file_id
+    const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
+    const filePath = getFile?.data?.result?.file_path
+    if (filePath) {
+      const ext = path.extname(filePath) || '.jpg'
+      const savePath = path.join(saveBase, `m${post.message_id}_p0${ext}`)
+      const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
+      await downloadFile(fileUrl, savePath, agents)
+      node.push(segment.image(toFileUrl(savePath)))
+      files.push(savePath)
+    }
+  }
+
+  // 视频：≤上限时直传QQ，超过上限仅提示
+  if (post.video) {
+    if (maxBytes && post.video.file_size && post.video.file_size > maxBytes) {
+      node.push('(视频超过大小上限，已跳过)')
+      return { node, files }
+    }
+    const fileId = post.video.file_id
+    const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
+    const filePath = getFile?.data?.result?.file_path
+    if (filePath) {
+      const ext = path.extname(filePath) || '.mp4'
+      const savePath = path.join(saveBase, `m${post.message_id}_v0${ext}`)
+      const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
+      await downloadFile(fileUrl, savePath, agents)
+      try {
+        if (typeof segment.video === 'function') {
+          node.push(segment.video(toFileUrl(savePath)))
+        } else {
+          node.push(`(视频已保存: ${savePath})`)
+        }
+      } catch (e) {
+        node.push(`(视频已保存: ${savePath})`)
+      }
+      files.push(savePath)
+    }
+  }
+
+  // 文件文档：下载后作为文件或图片发送（≤ 上限）
+  if (post.document) {
+    const doc = post.document
+    if (!maxBytes || !doc.file_size || doc.file_size <= maxBytes) {
+      const fileId = doc.file_id
+      const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
+      const filePath = getFile?.data?.result?.file_path
+      if (filePath) {
+        let ext = path.extname(filePath)
+        if (!ext) {
+          const nameExt = path.extname(doc.file_name || '')
+          ext = nameExt || '.bin'
+        }
+        const savePath = path.join(saveBase, `m${post.message_id}_d0${ext}`)
+        const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
+        await downloadFile(fileUrl, savePath, agents)
+        const mime = doc.mime_type || ''
+        const lowerExt = (ext || '').toLowerCase()
+        try {
+          if (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(lowerExt)) {
+            node.push(segment.image(toFileUrl(savePath)))
+          } else if (mime.startsWith('video/') || ['.mp4', '.mov', '.mkv', '.avi', '.webm'].includes(lowerExt)) {
+            if (typeof segment.video === 'function') {
+              node.push(segment.video(toFileUrl(savePath)))
+            } else {
+              node.push(`(视频已保存: ${savePath})`)
+            }
+          } else {
+            if (typeof segment.file === 'function') {
+              node.push(segment.file(toFileUrl(savePath)))
+            } else {
+              node.push(`(文件已保存: ${doc.file_name || path.basename(savePath)})`)
+            }
+          }
+        } catch (e) {
+          node.push(`(文件已保存: ${doc.file_name || path.basename(savePath)})`)
+        }
+        files.push(savePath)
+      }
+    } else {
+      node.push('(文件超过大小上限，已跳过)')
+    }
+  }
+
+  return { node, files }
+}
+
+// 导出音频处理函数供混合下载器回退使用
+export async function handleAudio(token, proxy, baseDir, post, agents, maxBytes) {
+  const node = []
+  const files = []
+  if (!post.audio && !post.voice) return { node, files }
+  
+  const audio = post.audio || post.voice
+  const channelKey = post.chat?.id || post.chat?.username || 'unknown'
+  
+  // 确保目录存在
+  const date = new Date()
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  
+  const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration');
+  const defaultDir = path.join(pluginRoot, 'data', 'temp', 'tg');
+  const saveBase = path.join(process.cwd(), baseDir || defaultDir, String(channelKey), `${y}${m}${d}`)
+  ensureDir(saveBase)
+  
+  if (maxBytes && audio.file_size && audio.file_size > maxBytes) {
+    node.push('(音频超过大小上限，已跳过)')
+    return { node, files }
+  }
+  
+  // 下载文件工具函数
+  async function downloadFile(fileUrl, savePath, agents) {
+    const writer = fs.createWriteStream(savePath)
+    const resp = await axios.get(fileUrl, { responseType: 'stream', ...agents })
+    await new Promise((resolve, reject) => {
+      resp.data.pipe(writer)
+      writer.on('finish', resolve)
+      writer.on('error', reject)
+    })
+  }
+
+  // 路径转file:// URL格式
+  function toFileUrl(p) { return 'file://' + p.replace(/\\/g, '/') }
+  
+  const fileId = audio.file_id
+  const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
+  const filePath = getFile?.data?.result?.file_path
+  if (filePath) {
+    const ext = path.extname(filePath) || (post.voice ? '.ogg' : '.mp3')
+    const savePath = path.join(saveBase, `m${post.message_id}_a0${ext}`)
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
+    await downloadFile(fileUrl, savePath, agents)
+    
+    try {
+      if (typeof segment.record === 'function') {
+        node.push(segment.record(toFileUrl(savePath)))
+      } else if (typeof segment.file === 'function') {
+        node.push(segment.file(toFileUrl(savePath)))
+      } else {
+        node.push(`(音频已保存: ${audio.title || audio.file_name || path.basename(savePath)})`)
+      }
+    } catch (e) {
+      node.push(`(音频已保存: ${audio.title || audio.file_name || path.basename(savePath)})`)
+    }
+    files.push(savePath)
+  }
+  
+  return { node, files }
+}
+
+/**
+ * 处理云端API拉取的消息
+ */
+async function processCloudMessages(cloudResult, config, e) {
+  try {
+    let totalMessages = 0
+    const allNodes = []
+
+    for (const channelResult of cloudResult.channels) {
+      if (!channelResult.success || !channelResult.messages.length) {
+        continue
+      }
+
+      logger.info(`[TG] 处理频道 ${channelResult.channel_id} 的 ${channelResult.messages.length} 条消息`)
+
+      for (const message of channelResult.messages) {
+        try {
+          // 使用云端消息处理云端文件下载
+          const processedResult = await processCloudMessage(message, config)
+          
+          if (processedResult && processedResult.nodes.length > 0) {
+            allNodes.push(...processedResult.nodes)
+            totalMessages++
+          }
+        } catch (error) {
+          logger.error(`[TG] 处理云端消息失败: ${error.message}`)
+        }
+      }
+    }
+
+    if (allNodes.length === 0) {
+      return { success: true, totalMessages: 0 }
+    }
+
+    // 批量转发消息
+    const batchSize = config.batch?.size || 8
+    const batches = []
+    for (let i = 0; i < allNodes.length; i += batchSize) {
+      batches.push(allNodes.slice(i, i + batchSize))
+    }
+
+    logger.info(`[TG] 开始批量转发，共 ${batches.length} 批`)
+
+    for (const [index, batch] of batches.entries()) {
+      try {
+        // 找到目标配置
+        for (const channel of config.channels) {
+          if (channel.target) {
+            await sendForwardMessage(batch, channel.target)
+            logger.info(`[TG] 第 ${index + 1}/${batches.length} 批转发完成`)
+          }
+        }
+      } catch (error) {
+        logger.error(`[TG] 第 ${index + 1} 批转发失败: ${error.message}`)
+      }
+    }
+
+    return { success: true, totalMessages }
+
+  } catch (error) {
+    logger.error(`[TG] 云端消息处理失败: ${error.message}`)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
+ * 处理单个云端消息
+ */
+async function processCloudMessage(message, config) {
+  try {
+    const nodes = []
+
+    // 处理文本内容
+    if (message.text || message.caption) {
+      const text = filterContent(message.text || message.caption, config)
+      nodes.push(text)
+    }
+
+    // 处理文件（云端已提供下载链接）
+    if (message.files && message.files.length > 0) {
+      for (const file of message.files) {
+        try {
+          // 使用云端提供的下载链接直接下载
+          const downloadResult = await downloadCloudFile(file, config)
+          if (downloadResult && downloadResult.node) {
+            nodes.push(downloadResult.node)
+          }
+        } catch (error) {
+          logger.error(`[TG] 云端文件下载失败: ${error.message}`)
+          nodes.push(`(文件下载失败: ${file.file_name || file.type})`)
+        }
+      }
+    }
+
+    return { nodes }
+
+  } catch (error) {
+    logger.error(`[TG] 处理云端消息失败: ${error.message}`)
+    return null
+  }
+}
+
+/**
+ * 下载云端文件
+ */
+async function downloadCloudFile(file, config) {
+  try {
+    if (!file.download_url) {
+      throw new Error('缺少下载链接')
+    }
+
+    // 构建保存路径
+    const downloadDir = config.download?.dir || path.join('plugins', 'yunzai-plugin-integration', 'data', 'temp', 'tg')
+    ensureDir(downloadDir)
+
+    const fileName = file.file_name || `${file.file_id}.${getFileExtension(file.type)}`
+    const savePath = path.join(downloadDir, fileName)
+
+    // 使用axios下载文件
+    const response = await axios.get(file.download_url, {
+      responseType: 'stream',
+      timeout: 30000
+    })
+
+    const writer = fs.createWriteStream(savePath)
+    response.data.pipe(writer)
+
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve)
+      writer.on('error', reject)
+    })
+
+    // 生成消息段
+    const fileUrl = 'file://' + savePath.replace(/\\/g, '/')
+    let node
+
+    switch (file.type) {
+      case 'photo':
+        node = typeof segment?.image === 'function' ? segment.image(fileUrl) : `(图片已保存: ${fileName})`
+        break
+      case 'video':
+      case 'animation':
+        node = typeof segment?.video === 'function' ? segment.video(fileUrl) : `(视频已保存: ${fileName})`
+        break
+      case 'audio':
+      case 'voice':
+        node = typeof segment?.record === 'function' ? segment.record(fileUrl) : `(音频已保存: ${fileName})`
+        break
+      default:
+        node = `(文件已保存: ${fileName})`
+    }
+
+    return { node, filePath: savePath }
+
+  } catch (error) {
+    logger.error(`[TG] 云端文件下载失败: ${error.message}`)
+    throw error
+  }
+}
+
+/**
+ * 获取文件扩展名
+ */
+function getFileExtension(fileType) {
+  const extensionMap = {
+    photo: 'jpg',
+    video: 'mp4',
+    audio: 'mp3',
+    voice: 'ogg',
+    document: 'pdf',
+    animation: 'gif'
+  }
+  return extensionMap[fileType] || 'bin'
+}
+
+/**
+ * 更新频道状态
+ */
+function updateChannelStates(state, channelResults) {
+  if (!state.channel_states) {
+    state.channel_states = {}
+  }
+
+  for (const result of channelResults) {
+    if (result.success && result.latest_message_id) {
+      state.channel_states[result.channel_id] = {
+        last_message_id: result.latest_message_id,
+        last_update: Date.now()
+      }
+    }
   }
 }
 
