@@ -377,7 +377,8 @@ class CloudTelebotAPI {
         retry: 0
       })
       
-      const isHealthy = response.status === 200 && response.data?.success && response.data?.data?.status === 'ok'
+      const status = String(response.data?.data?.status || '').toLowerCase()
+      const isHealthy = response.status === 200 && response.data?.success && ['ok', 'healthy'].includes(status)
       this.healthStatus = isHealthy
       this.lastHealthCheck = now
       
