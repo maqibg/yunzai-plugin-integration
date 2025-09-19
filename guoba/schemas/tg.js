@@ -82,7 +82,17 @@ export const tgSchema = {
               component: 'Switch', 
               componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' } 
             },
-            \r\n            { \r\n              field: 'download_root', \r\n              label: '下载根路径', \r\n              bottomHelpMessage: 'teelebot 下载目录（Yunzai 可读路径），为空使用内置默认', \r\n              component: 'Input', \r\n              componentProps: { placeholder: 'plugins/yunzai-plugin-integration/model/tg/teelebot/plugins/TGDownloader/download' },\r\n              ifShow: ({ model }) => model?.cloud_teelebot?.enabled\r\n            },\r\n            {\r\n              field: 'auth_token', 
+            
+            { 
+              field: 'download_root', 
+              label: '下载根路径', 
+              bottomHelpMessage: 'teelebot 下载目录（Yunzai 可读路径），为空使用内置默认', 
+              component: 'Input', 
+              componentProps: { placeholder: 'plugins/yunzai-plugin-integration/model/tg/teelebot/plugins/TGDownloader/download' },
+              ifShow: ({ model }) => model?.cloud_teelebot?.enabled
+            },
+            {
+              field: 'auth_token', 
               label: 'API认证Token', 
               bottomHelpMessage: 'API认证token（与teelebot FileLinker插件配置保持一致）', 
               component: 'Input', 
@@ -196,5 +206,6 @@ export const tgSchema = {
     ]
   }
 }
+
 
 
