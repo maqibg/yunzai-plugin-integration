@@ -1,17 +1,17 @@
 // TG 配置读写模块（model/tg/tg-setting.js）
-// 作用：
-// - 首次运行将 config/default/dafult-tg-config.yaml 拷贝为 config/tg-config.yaml
-// - 提供 getConfig() 合并默认与用户配置；setConfig() 写回并尽量保留注释
-// - 监听配置文件变更（chokidar），自动失效缓存
+// 说明：
+// - 首次运行将 config/default/default-tg-config.yaml 复制为 config/tg-config.yaml
+// - 提供 getConfig() 合并默认+用户配置；setConfig() 写回并尽量保留注释
+// - 配置文件变更支持 chokidar 自动失效缓存
 import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
 import chokidar from 'chokidar'
 
-// 兼容logger
+// 统一 logger
 const logger = globalThis.logger || console
 
-// 基于现有 setting 模板实现，适配 tg-config
+// 插件根目录
 const _path = process.cwd()
 const pluginRoot = path.join(_path, 'plugins', 'yunzai-plugin-integration')
 
@@ -33,22 +33,31 @@ class TgSetting {
     }
   }
 
-  // 计算配置文件路径
-  // - type:'def' 使用 dafult-tg-config.yaml（按需求保留该拼写）
-  // - type:'config' 使用 tg-config.yaml（如不存在则从默认复制）
+  // 解析默认/用户配置文件路径
+  // - type:'def' 返回默认模板路径（优先 default-tg-config.yaml，兼容历史拼写 dafult-…）
+  // - type:'config' 返回实际配置路径；不存在时拷贝默认模板
   getFilePath(name, type = 'config') {
+    const defNew = path.join(this.defPath, 'default-tg-config.yaml')
+    const defOld = path.join(this.defPath, 'dafult-tg-config.yaml') // 兼容旧拼写
+
     if (type === 'def') {
-      // 名称参数无意义，固定映射到默认模板
-      return path.join(this.defPath, 'dafult-tg-config.yaml')
+      // 优先新命名，回退旧文件
+      if (fs.existsSync(defNew)) return defNew
+      if (fs.existsSync(defOld)) return defOld
+      return defNew
     } else {
       const configFile = path.join(this.configPath, 'tg-config.yaml')
-      const defFile = path.join(this.defPath, 'dafult-tg-config.yaml')
-      if (!fs.existsSync(configFile) && fs.existsSync(defFile)) {
+      if (!fs.existsSync(configFile)) {
         try {
-          fs.copyFileSync(defFile, configFile)
-          logger.info('[TG] 已创建配置文件: tg-config.yaml')
+          const src = fs.existsSync(defNew) ? defNew : (fs.existsSync(defOld) ? defOld : null)
+          if (src) {
+            fs.copyFileSync(src, configFile)
+            logger.info('[TG] 已创建默认配置: tg-config.yaml')
+          } else {
+            logger.warn('[TG] 未找到默认模板(default-tg-config.yaml)')
+          }
         } catch (err) {
-          logger.error('[TG] 创建配置文件失败:', err)
+          logger.error('[TG] 复制默认配置失败:', err)
         }
       }
       return configFile
@@ -56,7 +65,6 @@ class TgSetting {
   }
 
   getYaml(type = 'config') {
-    const cacheKey = type
     if (this[type]._one) return this[type]._one
 
     const filePath = this.getFilePath('tg-config', type)
@@ -78,7 +86,7 @@ class TgSetting {
 
   getDefConfig() { return this.getYaml('def') }
 
-  // 获取用户配置（合并默认）
+  // 获取用户配置，合并默认
   getConfig() {
     const defConfig = this.getDefConfig()
     const userConfig = this.getYaml('config')
@@ -96,7 +104,7 @@ class TgSetting {
           this.updateYamlDocument(doc, data)
           yamlContent = doc.toString()
         } catch (e) {
-          logger.warn('[TG] 无法保留注释，使用常规保存:', e.message)
+          logger.warn('[TG] 无法保留注释，使用重写保存:', e.message)
           yamlContent = YAML.stringify(data)
         }
       } else {
@@ -107,18 +115,18 @@ class TgSetting {
       logger.info('[TG] 保存配置成功: tg-config.yaml')
       return true
     } catch (err) {
-      logger.error('[TG] 保存配置失败:', err.message)
+      logger.error('[TG] 写入配置失败:', err.message)
       return false
     }
   }
 
-  // 尝试在不破坏注释与键顺序的情况下更新 YAML 文档
+  // 在不破坏注释的前提下，更新 YAML 文档
   updateYamlDocument(doc, data) {
     if (!doc.contents) return
     const updateNode = (node, newData) => {
       if (node && node.items) {
         for (const item of node.items) {
-          if (item.key && item.key.value && newData.hasOwnProperty(item.key.value)) {
+          if (item.key && item.key.value && Object.prototype.hasOwnProperty.call(newData, item.key.value)) {
             const key = item.key.value
             const newValue = newData[key]
             if (typeof newValue === 'object' && newValue !== null && !Array.isArray(newValue)) {
@@ -132,16 +140,14 @@ class TgSetting {
         }
         for (const [key, value] of Object.entries(newData)) {
           const exists = node.items.some(i => i.key && i.key.value === key)
-          if (!exists) {
-            node.items.push(doc.createPair(doc.createNode(key), doc.createNode(value)))
-          }
+          if (!exists) node.items.push(doc.createPair(doc.createNode(key), doc.createNode(value)))
         }
       }
     }
     updateNode(doc.contents, data)
   }
 
-  // 监听配置文件变更，失效缓存并提示日志
+  // 监听配置文件，热更新缓存并提示日志
   watch(filePath, type) {
     const key = `watch_${type}`
     if (this.watcher[key]) return
