@@ -36,7 +36,7 @@ export default class TgMonitor extends plugin {
       const results = []
 
       for (const ch of req.channels) {
-        const label = ch.id ?? ch.username ?? ch.alias ?? '未知频道'
+        const label = (ch.alias && String(ch.alias).trim()) || (ch.username && String(ch.username).trim()) || (ch.id && String(ch.id).trim()) || '未知频道'
         try {
           const sum = useCloud
             ? await pullByTeelebot(e, ch, req.limit, state, cloud)
@@ -65,3 +65,4 @@ export default class TgMonitor extends plugin {
     return true
   }
 }
+

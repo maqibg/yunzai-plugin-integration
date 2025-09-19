@@ -87,3 +87,4 @@ function createFileSegment(absPath, fileName) {
   if (['.mp3','.ogg','.wav','.m4a'].includes(ext)) return seg.record ? seg.record(absPath) : absPath
   return seg.file ? seg.file(absPath) : [`[文件] ${fileName || path.basename(absPath)}`, absPath]
 }
+
