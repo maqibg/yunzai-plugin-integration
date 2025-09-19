@@ -40,6 +40,7 @@ download:
 
 # [云端API] 分布式下载配置（云端优先策略：所有消息都先尝试云端API）
 cloud_teelebot:
+  download_root: "plugins/yunzai-plugin-integration/model/tg/teelebot/plugins/TGDownloader/download"  # teelebot 下载根目录（Yunzai 可读路径）
   enabled: false                                # 是否启用云端teelebot API（需要单独部署）
   api_endpoint: "http://localhost:31955"         # 云端API服务地址
   auth_token: ""                                # API认证token（与teelebot FileLinker插件配置保持一致）

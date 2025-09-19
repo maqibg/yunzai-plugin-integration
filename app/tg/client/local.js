@@ -200,22 +200,12 @@ function isEmpty(dir){
 }
 
 function createFileSegment(absPath, fileName) {
+  const toFileUrl = (p) => 'file://' + String(p).replace(/\\\\/g,'/')
   const ext = path.extname(fileName || absPath).toLowerCase()
   const seg = globalThis.segment || {}
-  if (['.jpg','.jpeg','.png','.gif','.bmp','.webp'].includes(ext)) return seg.image ? seg.image(absPath) : absPath
-  if (['.mp4','.mov','.mkv','.avi'].includes(ext)) return seg.video ? seg.video(absPath) : absPath
-  if (['.mp3','.ogg','.wav','.m4a'].includes(ext)) return seg.record ? seg.record(absPath) : absPath
-  return seg.file ? seg.file(absPath) : [`[文件] ${fileName || path.basename(absPath)}`, absPath]
-}
-
-function ensureDir(d){ if (!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}) }
-function sanitize(s){ return String(s||'').replace(/[^a-zA-Z0-9._-]+/g,'_') }
-
-function normalizeMessageForSig(m){
-  const base = { message_id: m.message_id, media_group_id: m.media_group_id, text: m.text, caption: m.caption, attachments: [] }
-  if (Array.isArray(m.photo)) base.attachments.push(...m.photo.map(p=>({ file_unique_id: p.file_unique_id })))
-  if (m.document) base.attachments.push({ file_unique_id: m.document.file_unique_id })
-  if (m.video) base.attachments.push({ file_unique_id: m.video.file_unique_id })
-  if (m.audio) base.attachments.push({ file_unique_id: m.audio.file_unique_id })
-  return base
+  const uri = toFileUrl(absPath)
+  if (['.jpg','.jpeg','.png','.gif','.bmp','.webp'].includes(ext)) return seg.image ? seg.image(uri) : uri
+  if (['.mp4','.mov','.mkv','.avi','.webm'].includes(ext)) return seg.video ? seg.video(uri) : uri
+  if (['.mp3','.ogg','.wav','.m4a','.amr'].includes(ext)) return seg.record ? seg.record(uri) : uri
+  return seg.file ? seg.file(uri) : uri
 }

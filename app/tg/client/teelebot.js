@@ -36,7 +36,7 @@ export async function pullByTeelebot(e, channel, limit, state, cloudCfg) {
 
   const downloadRoot = cloudCfg.download_root
     ? path.resolve(cloudCfg.download_root)
-    : path.resolve(process.cwd(), 'plugins', 'teelebot', 'plugins', 'TGDownloader', 'download')
+    : path.resolve(process.cwd(), 'plugins', 'yunzai-plugin-integration', 'model', 'tg', 'teelebot', 'plugins', 'TGDownloader', 'download')
 
   const nodeList = []
   const cleanupSet = new Set()
@@ -71,26 +71,29 @@ function buildSegmentsFromTeelebot(root, item) {
   const segs = []
   if (item.text) segs.push(item.text)
   if (item.caption && item.caption !== item.text) segs.push(item.caption)
-  for (const f of item.files || []) {
+    for (const f of item.files || []) {
     try {
+      const name = String(f.name || '')
+      if (name === 'message.txt' || name === 'message.json') continue
       const abs = path.resolve(root, item.folder || '', f.path || '')
       if (!abs.startsWith(path.resolve(root))) throw new Error('非法路径')
       if (!fs.existsSync(abs)) continue
-      segs.push(createFileSegment(abs, f.name))
+      segs.push(createFileSegment(abs, name))
     } catch (err) {
-      // 忽略单文件失败
+      // 单文件失败忽略
     }
   }
   return segs.filter(Boolean).flat()
 }
 
 function createFileSegment(absPath, fileName) {
+  const toFileUrl = (p) => 'file://' + String(p).replace(/\\\\/g,'/')
   const ext = path.extname(fileName || absPath).toLowerCase()
   const seg = globalThis.segment || {}
-  if (['.jpg','.jpeg','.png','.gif','.bmp','.webp'].includes(ext)) return seg.image ? seg.image(absPath) : absPath
-  if (['.mp4','.mov','.mkv','.avi'].includes(ext)) return seg.video ? seg.video(absPath) : absPath
-  if (['.mp3','.ogg','.wav','.m4a'].includes(ext)) return seg.record ? seg.record(absPath) : absPath
-  return seg.file ? seg.file(absPath) : [`[文件] ${fileName || path.basename(absPath)}`, absPath]
+  const uri = toFileUrl(absPath)
+  if (['.jpg','.jpeg','.png','.gif','.bmp','.webp'].includes(ext)) return seg.image ? seg.image(uri) : uri
+  if (['.mp4','.mov','.mkv','.avi','.webm'].includes(ext)) return seg.video ? seg.video(uri) : uri
+  if (['.mp3','.ogg','.wav','.m4a','.amr'].includes(ext)) return seg.record ? seg.record(uri) : uri
+  return seg.file ? seg.file(uri) : uri
 }
-
 

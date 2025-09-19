@@ -12,17 +12,7 @@ const cloudConfigSchema = {
       description: '启用后所有消息（包括文本和文件）都优先通过云端teelebot API处理',
       default: false
     },
-    api_endpoint: {
-      type: 'string',
-      title: 'API服务地址',
-      description: '云端API服务地址',
-      default: 'http://localhost:31955',
-      pattern: '^https?://.+',
-      'if': {
-        properties: { enabled: { const: true } }
-      }
-    },
-    auth_token: {
+        download_root: {\r\n      type: 'string',\r\n      title: '下载根路径',\r\n      description: 'teelebot 下载目录（Yunzai 可读路径）',\r\n      default: '',\r\n      minLength: 0\r\n    },\r\n    auth_token: {
       type: 'string',
       title: 'API认证Token',
       description: 'API认证token（与teelebot FileLinker插件配置保持一致）',
@@ -147,8 +137,7 @@ const cloudConfigSchema = {
         {
           properties: {
             enabled: { const: true },
-            api_endpoint: { minLength: 1 },
-            auth_token: { minLength: 1 }
+                download_root: {\r\n      type: 'string',\r\n      title: '下载根路径',\r\n      description: 'teelebot 下载目录（Yunzai 可读路径）',\r\n      default: '',\r\n      minLength: 0\r\n    },\r\n            auth_token: { minLength: 1 }
           },
           required: ['api_endpoint', 'auth_token']
         }
