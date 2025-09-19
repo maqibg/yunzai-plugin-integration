@@ -18,8 +18,13 @@ export async function pullByTeelebot(e, channel, limit, state, cloudCfg) {
   const tState = state.teelebot || (state.teelebot = { chats: {} })
   const chatState = tState.chats[chatKey] || { recent_signatures: [] }
 
+    const idStr = ((channel.id ?? '') + '').trim()
+  const userStr = ((channel.username ?? '') + '').replace(/^@/, '').trim()
+  const chatId = idStr || userStr
+  if (!chatId) throw new Error('频道配置缺少 id 或 username')
+
   const payload = {
-    chat_id: channel.id !== undefined ? String(channel.id) : String(channel.username || '').replace(/^@/, ''),
+    chat_id: chatId,
     limit,
     known_signatures: (chatState.recent_signatures || []).map(x => x.sig).filter(Boolean)
   }
@@ -87,4 +92,5 @@ function createFileSegment(absPath, fileName) {
   if (['.mp3','.ogg','.wav','.m4a'].includes(ext)) return seg.record ? seg.record(absPath) : absPath
   return seg.file ? seg.file(absPath) : [`[文件] ${fileName || path.basename(absPath)}`, absPath]
 }
+
 
