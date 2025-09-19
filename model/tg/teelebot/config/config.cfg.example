@@ -1,0 +1,33 @@
+# teelebot配置文件示例
+[config]
+key = 你的Bot_Token_在这里
+root_id = 你的管理员用户ID
+plugin_dir = /plugins
+pool_size = 40
+buffer_size = 16
+webhook = False
+self_signed = False
+cert_key = 
+cert_pub = 
+load_cert = False
+server_address = 
+server_port = 
+local_address = 0.0.0.0
+local_port = 8080
+secret_token = 
+debug = False
+hide_info = False
+drop_pending_updates = False
+local_api_server = 
+updates_chat_member = False
+proxy = 
+file_log = True
+file_log_dir = /config/logs
+
+# 重要说明：
+# 1. key: 必须填写有效的Telegram Bot Token
+# 2. root_id: 必须填写管理员的Telegram用户ID
+# 3. plugin_dir: 保持为 /plugins（Docker容器内路径）
+# 4. local_port: TgChannel插件将使用此端口提供API服务
+# 5. debug: 生产环境建议设为False
+# 6. file_log: 建议开启以便调试问题
