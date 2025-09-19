@@ -56,7 +56,8 @@ export default class TgMonitor extends plugin {
         }
       }
 
-      saveState(state)\n      if ((tgSetting.getConfig()?.logging?.detailed) === true) { await e.reply() }
+      saveState(state)
+      if ((tgSetting.getConfig()?.logging?.detailed) === true) { await e.reply(results.join('\n')) }
     } catch (err) {
       logger.error('[TG] 处理失败：' + err.message)
       await e.reply('TG 拉取失败：' + err.message)
@@ -64,5 +65,7 @@ export default class TgMonitor extends plugin {
     return true
   }
 }
+
+
 
 
