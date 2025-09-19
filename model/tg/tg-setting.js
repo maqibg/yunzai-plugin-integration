@@ -34,15 +34,15 @@ class TgSetting {
   }
 
   // 计算配置文件路径
-  // - type:'def' 使用 dafult-tg-config.yaml（按需求保留该拼写）
+  // - type:'def' 使用 default-tg-config.yaml（修复拼写错误）
   // - type:'config' 使用 tg-config.yaml（如不存在则从默认复制）
   getFilePath(name, type = 'config') {
     if (type === 'def') {
       // 名称参数无意义，固定映射到默认模板
-      return path.join(this.defPath, 'dafult-tg-config.yaml')
+      return path.join(this.defPath, 'default-tg-config.yaml')
     } else {
       const configFile = path.join(this.configPath, 'tg-config.yaml')
-      const defFile = path.join(this.defPath, 'dafult-tg-config.yaml')
+      const defFile = path.join(this.defPath, 'default-tg-config.yaml')
       if (!fs.existsSync(configFile) && fs.existsSync(defFile)) {
         try {
           fs.copyFileSync(defFile, configFile)

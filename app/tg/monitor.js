@@ -44,7 +44,8 @@ function buildDownloadDir(baseDir, channelKey) {
   
   const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration');
   const defaultDir = path.join(pluginRoot, 'temp', 'tg');
-  const dir = path.join(process.cwd(), baseDir || defaultDir, String(channelKey), `${y}${m}${d}`)
+  // 修改路径组织：baseDir/YYYY-MM-DD/channel_xxx/
+  const dir = path.join(process.cwd(), baseDir || defaultDir, `${y}-${m}-${d}`, `channel_${channelKey}`)
   ensureDir(dir)
   return dir
 }
@@ -125,7 +126,7 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
     const filePath = getFile?.data?.result?.file_path
     if (filePath) {
       const ext = path.extname(filePath) || '.jpg'
-      const savePath = path.join(saveBase, `m${post.message_id}_p0${ext}`)
+      const savePath = path.join(saveBase, `msg_${post.message_id}_photo${ext}`)
       const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
       await downloadFile(fileUrl, savePath, agents)
       node.push(segment.image(toFileUrl(savePath)))
@@ -144,7 +145,7 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
     const filePath = getFile?.data?.result?.file_path
     if (filePath) {
       const ext = path.extname(filePath) || '.mp4'
-      const savePath = path.join(saveBase, `m${post.message_id}_v0${ext}`)
+      const savePath = path.join(saveBase, `msg_${post.message_id}_video${ext}`)
       const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
       await downloadFile(fileUrl, savePath, agents)
       // 尝试以视频格式发送到QQ，失败则回退为文本提示
@@ -175,7 +176,7 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
           const nameExt = path.extname(doc.file_name || '')
           ext = nameExt || '.bin'
         }
-        const savePath = path.join(saveBase, `m${post.message_id}_d0${ext}`)
+        const savePath = path.join(saveBase, `msg_${post.message_id}_document${ext}`)
         const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
         await downloadFile(fileUrl, savePath, agents)
         // 根据类型选择片段：图片优先按图片段发送；视频按视频段；其他按文件段；都不支持则回退文本
@@ -232,7 +233,7 @@ async function handleAudio(token, proxy, baseDir, post, agents, maxBytes) {
   const filePath = getFile?.data?.result?.file_path
   if (filePath) {
     const ext = path.extname(filePath) || (post.voice ? '.ogg' : '.mp3')
-    const savePath = path.join(saveBase, `m${post.message_id}_a0${ext}`)
+    const savePath = path.join(saveBase, `msg_${post.message_id}_audio${ext}`)
     const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
     await downloadFile(fileUrl, savePath, agents)
     
