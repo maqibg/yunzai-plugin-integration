@@ -404,7 +404,7 @@ async function pullWithTeelebotMode(e, cfg) {
 
     // 创建teelebot客户端
     const client = new TeelebotClient({
-      api_url: teelebot.api_url || 'http://localhost:8089',
+      api_url: resolveTeelebotApiUrl(teelebot),
       timeout: teelebot.timeout || 30000
     })
 
@@ -895,4 +895,25 @@ export default class TgMonitor extends plugin {
   async manualPull(e) {
     return await pullTelegramMessages(e)
   }
+}
+// 解析 teelebot API 地址（优先用配置；否则从 teelebot/config/config.cfg 的 local_port 推断）
+function resolveTeelebotApiUrl(teelebotCfg) {
+  try {
+    if (teelebotCfg && teelebotCfg.api_url) return teelebotCfg.api_url
+    const dockerPath = (teelebotCfg && teelebotCfg.docker_path) || path.join('plugins','yunzai-plugin-integration','model','tg','teelebot')
+    const cfgPath = path.join(process.cwd(), dockerPath, 'config', 'config.cfg')
+    if (fs.existsSync(cfgPath)) {
+      const content = fs.readFileSync(cfgPath, 'utf8')
+      const m = content.match(/local_port\s*=\s*(\d+)/)
+      if (m && m[1]) {
+        const url = `http://127.0.0.1:${m[1]}`
+        logger.info(`[TG] 自动解析 teelebot API 地址: ${url}`)
+        return url
+      }
+    }
+  } catch (err) {
+    logger.debug(`[TG] 自动解析 teelebot api_url 失败: ${err.message}`)
+  }
+  // 兜底：与 teelebot config.cfg.example 的默认端口一致
+  return 'http://127.0.0.1:8080'
 }
