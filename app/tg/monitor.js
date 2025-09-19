@@ -403,13 +403,34 @@ async function pullWithTeelebotMode(e, cfg) {
     } = cfg
 
     // 创建teelebot客户端
-    const client = new TeelebotClient({
-      api_url: resolveTeelebotApiUrl(teelebot),
+            const initialApiUrl = resolveTeelebotApiUrl(teelebot)
+    let client = new TeelebotClient({
+      api_url: initialApiUrl,
       timeout: teelebot.timeout || 30000
     })
 
-    // 检查teelebot服务健康状态
-    const healthCheck = await client.checkHealth()
+    // Health check with local fallback when LAN IP fails
+    let healthCheck = await client.checkHealth()
+    if (!healthCheck.success) {
+      try {
+        const dockerPath = (teelebot && teelebot.docker_path) || path.join('plugins','yunzai-plugin-integration','model','tg','teelebot')
+        const cfgPath = path.join(process.cwd(), dockerPath, 'config', 'config.cfg')
+        const isLocalHostUrl = /^https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?/i.test(teelebot?.api_url || '')
+        if (fs.existsSync(cfgPath) && !isLocalHostUrl) {
+          const content = fs.readFileSync(cfgPath, 'utf8')
+          const m = content.match(/local_port\s*=\s*(\d+)/)
+          if (m && m[1]) {
+            const fallbackUrl = `http://127.0.0.1:${m[1]}`
+            logger.warn(`[TG] Teelebot health failed, try local fallback: ${fallbackUrl}`)
+            client = new TeelebotClient({ api_url: fallbackUrl, timeout: teelebot.timeout || 30000 })
+            healthCheck = await client.checkHealth()
+          }
+        }
+      } catch (err) {
+        logger.debug(`[TG] Fallback probe failed: ${err.message}`)
+      }
+    }
+
     if (!healthCheck.success) {
       logger.warn('[TG] Teelebot服务不可用，切换到本地模式')
       return await pullWithLocalMode(e, cfg)
