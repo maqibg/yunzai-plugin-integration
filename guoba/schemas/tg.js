@@ -3,6 +3,7 @@
 // - 字段说明：
 //   token：官方 bot token
 //   proxy：代理参数（enable、protocol、host、port）
+//   api：本地/官方端点与优先级（base_local、base_official、prefer、fallback_on_fail）
 //   batch：每批次合并转发的节点数上限
 //   dedup：去重数据保留天数
 //   download.dir：下载目录（默认 plugins/.../data/temp/tg）
@@ -24,6 +25,20 @@ export const tgSchema = {
         bottomHelpMessage: 'Telegram 官方 bot token（必填）',
         component: 'Input',
         componentProps: { placeholder: '123456:ABC-xxx' },
+      },
+      {
+        field: 'api',
+        label: 'API 端点',
+        component: 'GSubForm',
+        componentProps: {
+          multiple: false,
+          schemas: [
+            { field: 'base_local', label: '本地地址', component: 'Input', componentProps: { placeholder: 'http://127.0.0.1:31956' } },
+            { field: 'base_official', label: '官方地址', component: 'Input', componentProps: { placeholder: 'https://api.telegram.org' } },
+            { field: 'prefer', label: '优先使用', component: 'Select', componentProps: { options: [ { label: '本地', value: 'local' }, { label: '官方', value: 'official' } ] } },
+            { field: 'fallback_on_fail', label: '失败回退', component: 'Switch', componentProps: { checkedChildren: '开启', unCheckedChildren: '关闭' } }
+          ]
+        }
       },
       {
         field: 'proxy',
@@ -55,7 +70,7 @@ export const tgSchema = {
         field: 'download',
         label: '下载目录',
         component: 'GSubForm',
-        componentProps: { multiple: false, schemas: [ { field: 'dir', label: '目录', component: 'Input', componentProps: { placeholder: 'plugins/yunzai-plugin-integration/data/temp/tg' } }, { field: 'max_file_mb', label: '单文件上限(MB)', component: 'InputNumber', componentProps: { min: 1, max: 50, placeholder: '20' } } ] }
+        componentProps: { multiple: false, schemas: [ { field: 'dir', label: '目录', component: 'Input', componentProps: { placeholder: 'plugins/yunzai-plugin-integration/data/temp/tg' } }, { field: 'max_file_mb', label: '单文件上限(MB)', component: 'InputNumber', componentProps: { min: 1, max: 20480, placeholder: '500' } } ] }
       },
       {
         field: 'logging',

@@ -1,0 +1,41 @@
+services:
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram-bot-api
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - TELEGRAM_API_ID=
+      - TELEGRAM_API_HASH=
+      - TELEGRAM_LOCAL=0.0.0.0
+      - TELEGRAM_MAX_CONNS=1000
+      - TELEGRAM_LOG_LEVEL=3
+      - TELEGRAM_HTTP=true
+      # - HTTP_PROXY=http://127.0.0.1:7890  # 例如：http://192.168.1.100:7890
+      # - HTTPS_PROXY=http://127.0.0.1:7890  # 与HTTP_PROXY相同
+      - ALL_PROXY=socks5h://127.0.0.1:7890
+    volumes:
+      - ./telegram-bot-api-data:/var/lib/telegram-bot-api
+      - ./telegram-bot-api-logs:/var/log/telegram-bot-api
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/getMe"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  telegram-bot-api-data:
+    driver: local
+  telegram-bot-api-logs:
+    driver: local
+    

@@ -1,84 +1,76 @@
-# Telegram 监听与转发默认配置（首次运行会复制为 config/tg-config.yaml）
-# 支持双模式：Teelebot模式（推荐）和本地模式（备用）
-# 
+# Telegram 拉取并合并转发（最小闭环配置，首次运行会复制为 config/tg-config.yaml）
 # 使用说明：
-# 1. 先到 @BotFather 创建 Bot 并获取 token
-# 2. 将 Bot 添加到目标频道中，获取频道 ID 或 用户名
-# 3. 配置频道与 QQ 群/私聊的映射关系
-# 4. 发送 #tg 指令手动拉取频道消息并转发到QQ
-# 
-# 核心功能：
-# - 指令触发拉取：#tg / #tg拉取 / #拉取tg
-# - 双模式支持：Teelebot模式 + 本地模式备选
-# - 多媒体下载：支持文本/图片/视频/文档/音频
-# - 智能转发：按QQ消息格式转换，支持合并转发
-# - 去重机制：避免重复转发历史消息
-# - 代理支持：所有Telegram API请求均可走代理
+# 1. 在 @BotFather 创建 Bot 并获取 token。
+# 2. Bot 加入目标频道/群组并赋予读取权限。
+# 3. 配置本地 telegram-bot-api 容器的访问地址与端口（见 model/tg/telegram-bot-api/docker-compose.yml）。
+# 4. 在 channels 中填写要监听的频道/群组（id 或 username），以及转发目标 QQ 群/私聊。
+# 5. 发送 #tg 手动拉取并转发；所有媒体先下载到本地，转发完成后统一删除。
+#
+# 核心闭环：本地 Bot API 拉取 → 下载文件 → 合并转发 → 清理文件。
 
-# [核心] 运行模式选择
-mode: teelebot  # teelebot | local
-# - teelebot: 通过teelebot插件拉取（推荐），支持Docker部署
-# - local: 直接使用Bot Token拉取（备用方案）
-
-# [Teelebot模式] 配置 - 推荐模式
-teelebot:
-  api_url: http://localhost:8080      # teelebot API地址（使用config.cfg中的local_port）
-  timeout: 30000                      # API请求超时时间(ms)
-  retry_attempts: 3                   # 失败重试次数
-  retry_delay: 1000                   # 重试延迟(ms)
-  docker_path: plugins/yunzai-plugin-integration/model/tg/teelebot  # Docker持久化路径
-
-# [本地模式] 配置 - 备用方案
-# [必填] Telegram Bot Token，到 @BotFather 获取（本地模式必需）
+# [必填] Telegram Bot Token，到 @BotFather 获取
 token: ""
 
-# [可选] 代理配置，用于访问 Telegram API（国外服务器可不用）
-proxy:
-  enable: true            # 是否启用代理
-  protocol: http           # 代理协议：http 或 https
-  host: 127.0.0.1          # 代理主机地址
-  port: 7890               # 代理端口号
+# [API] 本地 Bot API 服务（优先使用本地容器，不再回落到官方）
+api:
+  base_local: "http://127.0.0.1:31956"   # 本地 telegram-bot-api 服务地址（docker-compose 暴露端口）
+  base_official: "https://api.telegram.org" # 仅保留占位，不默认使用
+  prefer: "local"                         # 固定使用本地
+  fallback_on_fail: false                 # 不回退到官方
+  request:
+    timeout_ms: 15000                     # 单次 HTTP 请求超时（毫秒）
 
 # [性能] 批量转发配置，避免单条发送刷屏
 batch:
-  size: 64                  # 每批合并转发的消息数量（过大可能被QQ风控）
+  size: 64                # 每批合并转发的消息数量（过大可能被QQ风控）
 
 # [性能] 去重配置，避免重复处理历史消息
 dedup:
-  ttl_days: 2              # 去重数据保留天数，超过即自动清理
+  ttl_days: 2             # 去重数据保留天数，超过即自动清理
 
 # [存储] 下载和文件管理配置
 download:
-  dir: plugins/yunzai-plugin-integration/model/tg/teelebot/plugins/TgChannel/download  # teelebot插件下载目录
-  max_file_mb: 20                               # 单文件最大下载大小（MB），超过则跳过下载
-  auto_cleanup: true                            # 是否启用自动清理
-  cleanup_days: 7                               # 清理超过指定天数的文件
+  # 默认下载到插件目录下本地容器数据卷：plugins/yunzai-plugin-integration/model/tg/telegram-bot-api/telegram-bot-api-data
+  # 注意：这里是相对路径（相对 Yunzai 运行目录），更便于跨环境迁移
+  dir: plugins/yunzai-plugin-integration/model/tg/telegram-bot-api/telegram-bot-api-data
+  max_file_mb: 500                                # 单文件最大下载大小（MB），超过则跳过下载
 
 # [日志] 输出级别控制
 logging:
-  detailed: false          # 是否输出DEBUG级别的详细日志信息
+  detailed: false         # 是否输出DEBUG级别的详细日志信息
+
+# [清理] 转发完成后的文件清理策略（仅删除已转发过的媒体文件）
+cleanup:
+  delete_after_forward: true     # 合并转发成功后是否删除对应文件
+  allow_dirs:                    # 只允许删除这些子目录下的文件（相对于 download.dir/<token>/）
+    - photos
+    - videos
+    - documents
+    - audio
+    - voice
+    - stickers
+    - animations
+    - temp
 
 # [过滤] 内容过滤器配置，用于清理不需要的内容
 filters:
-  enable: true             # 是否启用内容过滤器
-  remove_telegram_domains: true  # 是否过滤Telegram相关域名（替换为 https://）
-  telegram_domains:        # Telegram相关域名列表，可按需添加
+  enable: true                    # 是否启用内容过滤器
+  remove_telegram_domains: true   # 是否过滤Telegram相关域名（替换为 https://）
+  telegram_domains:               # Telegram相关域名列表，可按需添加
     - t.me
     - telegram.me
     - telegram.org
     - telegra.ph
 
-# [核心] 频道与 QQ 目标的映射关系配置（支持多个频道）
+# [核心] 频道与 QQ 目标的映射关系配置（支持多个频道/群组）
 # 注意：
-# - id 和 username 选择一个填写即可，id 优先级更高
-# - 频道 ID 获取方法：将 Bot 添加到频道中，然后查看 chat.id
+# - id 和 username 选其一；id 优先（频道/群组 id 可能为负数，频道常见以 -100 开头）。
+# - 频道/群组 ID：将 Bot 加入对应聊天后，通过 getUpdates 查看 update.message.chat.id 或 update.channel_post.chat.id。
 # - types 支持：text(文本), photo(图片), video(视频), document(文档), audio(音频)
-# 频道配置（可以为空数组，或配置多个频道）
-# 配置示例：
 channels:
-  - id: ""                    # 频道ID（可为空，如: -1001234567890）
-    username: ""             # 频道用户名（可为空，不包含@）
+  - id: ""                    # 频道/群组ID（如: -1001234567890）
+    username: ""             # 频道/群组用户名（不包含 @）
     types: [text, photo, video, document, audio]  # 要同步的消息类型
     target:
-      type: group           # 目标类型: group(群聊) 或 user(私聊)
-      id: 123456789         # QQ群号或QQ号
+      type: group            # 目标类型: group(群聊) 或 user(私聊)
+      id: 123456789          # QQ群号或QQ号

@@ -1,6 +1,4 @@
-// TG 频道监听与转发核心模块 - 双模式支持版本
-// - 支持Teelebot模式：通过HTTP API调用teelebot插件
-// - 支持本地模式：直接使用Bot Token拉取（备用方案）
+// TG 频道监听与转发核心模块 - 指令触发版本
 // - 通过#tg指令手动触发获取频道新消息，将文本/图片/视频下载到本地
 // - 按配置转发到 QQ 群/私聊
 // - 支持代理、去重、媒体下载等功能
@@ -11,7 +9,6 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'node:fs'
 import path from 'node:path'
 import tgSetting from '../../model/tg/tg-setting.js'
-import TeelebotClient from '../../model/tg/teelebot-client.js'
 
 // 工具：确保目录存在
 function ensureDir(dir) {
@@ -35,19 +32,61 @@ function saveState(s) { try { ensureDir(stateDir); fs.writeFileSync(stateFile, J
 // 工具：路径转 file:// 统一斜杠
 function toFileUrl(p) { return 'file://' + p.replace(/\\/g, '/') }
 
-// 工具：按通道与日期生成保存路径
-function buildDownloadDir(baseDir, channelKey) {
-  const date = new Date()
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  
-  const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration');
-  const defaultDir = path.join(pluginRoot, 'temp', 'tg');
-  // 修改路径组织：baseDir/YYYY-MM-DD/channel_xxx/
-  const dir = path.join(process.cwd(), baseDir || defaultDir, `${y}-${m}-${d}`, `channel_${channelKey}`)
-  ensureDir(dir)
-  return dir
+// 文本内容过滤：按配置过滤 Telegram 域名等
+function filterContent(text, config) {
+  if (!text || typeof text !== 'string') return text
+  const filters = config?.filters
+  if (!filters?.enable) return text
+  let out = text
+  if (filters.remove_telegram_domains && Array.isArray(filters.telegram_domains)) {
+    const parts = filters.telegram_domains
+      .map(d => String(d).trim())
+      .filter(Boolean)
+      .map(d => d.replace(/\./g, '\\.'))
+    if (parts.length) {
+      const re = new RegExp(`https?:\\/\\/(?:${parts.join('|')})`, 'gi')
+      out = out.replace(re, 'https://')
+    }
+  }
+  return out
+}
+
+// 工具：将 Bot API 返回的 file_path 映射为宿主机持久化路径
+// 规则：
+// - 若 file_path 以 /var/lib/telegram-bot-api/ 开头，则去掉该前缀，直接拼接到挂载根目录
+// - 若为相对路径（如 photos/file_123.jpg），则映射为 <root>/<botToken>/<file_path>
+function mapBotApiFileToHost(baseDir, botToken, filePath) {
+  const root = path.isAbsolute(baseDir)
+    ? baseDir
+    : path.join(process.cwd(), baseDir || path.join('plugins', 'yunzai-plugin-integration', 'model', 'tg', 'telegram-bot-api', 'telegram-bot-api-data'))
+
+  const fp = String(filePath || '')
+  const VAR_PREFIX = '/var/lib/telegram-bot-api/'
+  let rel
+  if (fp.startsWith(VAR_PREFIX)) {
+    rel = fp.slice(VAR_PREFIX.length)
+  } else if (fp.startsWith('/')) {
+    // 其他绝对路径：去掉开头斜杠后作为相对路径处理
+    rel = fp.replace(/^\/+/, '')
+  } else {
+    // 相对路径：挂到 token 目录下
+    rel = path.join(String(botToken || '').trim(), fp)
+  }
+
+  // 防穿越
+  const safeRel = rel.replace(/\\/g, '/').split('/').filter(p => p && p !== '.' && p !== '..').join(path.sep)
+  return path.join(root, safeRel)
+}
+
+// 若持久化文件不存在，则通过 /file 路由触发容器缓存
+async function ensurePersistentCached(base, token, filePath, proxy) {
+  const url = `${base}/file/bot${token}/${filePath}`
+  try {
+    const agents = agentsForBase(base, proxy)
+    await axios.get(url, { responseType: 'stream', ...agents, timeout: 15000 })
+  } catch (e) {
+    // 忽略触发失败，调用方将根据存在性决定是否跳过
+  }
 }
 
 // 构造代理 Agent：仅支持 http/https（如配置为其它协议，将回退为 https）
@@ -62,6 +101,58 @@ function buildAgents(proxy) {
   return { httpAgent: agent, httpsAgent: agent }
 }
 
+// 识别是否本地端点（不走代理）
+function isLocalBase(base) {
+  try {
+    const u = new URL(base)
+    return ['127.0.0.1', 'localhost', '0.0.0.0'].includes(u.hostname)
+  } catch (e) {
+    return false
+  }
+}
+
+// 针对不同端点返回合适的 agents
+function agentsForBase(base, proxy) { return isLocalBase(base) ? {} : buildAgents(proxy) }
+
+// 组装可用的 API 基址列表（首选 + 可选回退）
+function getApiBases(cfg) {
+  const api = cfg?.api || {}
+  const prefer = (api.prefer || 'local').toLowerCase()
+  const allowFallback = api.fallback_on_fail !== false
+  const local = api.base_local || 'http://127.0.0.1:31956'
+  const official = api.base_official || 'https://api.telegram.org'
+  const list = []
+  if (prefer === 'official') {
+    list.push(official)
+    if (allowFallback) list.push(local)
+  } else {
+    list.push(local)
+    if (allowFallback) list.push(official)
+  }
+  // 去重
+  return [...new Set(list.filter(Boolean))]
+}
+
+// 调用 Bot API（GET）并在失败时按配置回退；返回 { data, base }
+async function botApiGet(method, params, cfg, proxy, token, signal, timeoutOverride) {
+  const api = cfg?.api || {}
+  const timeout = Number(api?.request?.timeout_ms || 15000)
+  let lastErr = null
+  for (const base of getApiBases(cfg)) {
+    try {
+      const agents = agentsForBase(base, proxy)
+      const url = `${base}/bot${token}/${method}`
+      const resp = await axios.get(url, { params, ...agents, timeout: timeoutOverride || timeout, signal })
+      return { data: resp?.data, base }
+    } catch (err) {
+      lastErr = err
+      logger.warn(`[TG] 调用 ${method} 失败，端点 ${base}：${err?.message || err}`)
+      // 尝试下一个端点
+    }
+  }
+  throw lastErr || new Error('Bot API 请求失败')
+}
+
 // 通过 TG API 下载文件到本地
 async function downloadFile(fileUrl, savePath, agents) {
   const writer = fs.createWriteStream(savePath)
@@ -73,40 +164,14 @@ async function downloadFile(fileUrl, savePath, agents) {
   })
 }
 
-// 内容过滤器
-function filterContent(text, config) {
-  if (!text || typeof text !== 'string') return text
-  
-  const filters = config?.filters
-  if (!filters?.enable) return text
-  
-  let filteredText = text
-  
-  // 过滤Telegram域名
-  if (filters.remove_telegram_domains && Array.isArray(filters.telegram_domains)) {
-    for (const domain of filters.telegram_domains) {
-      // 创建正则：匹配 https://domain 或 http://domain，保留路径
-      const regex = new RegExp(`https?://${domain.replace('.', '\\.')}`, 'gi')
-      filteredText = filteredText.replace(regex, 'https://')
-    }
-  }
-  
-  return filteredText
-}
-
-// 解析消息成为一个 QQ 节点（含文本 + 图片/视频占位）与对应临时文件路径
-async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, maxBytes, config) {
+// 解析消息成为一个 QQ 节点（直接读取容器持久化缓存，不再复制/下载）
+async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, maxBytes, cfg) {
   const node = []
   const files = []
-  const channelKey = post.chat?.id || post.chat?.username || 'unknown'
-  const saveBase = buildDownloadDir(baseDir, channelKey)
 
   // 文本（text 或 caption）- 应用过滤器
   const text = post.text || post.caption
-  if (text) {
-    const filteredText = filterContent(text, config)
-    node.push(filteredText)
-  }
+  if (text) node.push(filterContent(text, cfg))
 
   // 图片：从同一张不同规格中，选择不超过上限的最大一张
   if (Array.isArray(post.photo) && post.photo.length) {
@@ -121,16 +186,14 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
       return { node, files }
     }
     const fileId = best.file_id
-    // getFile
-    const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-    const filePath = getFile?.data?.result?.file_path
+    // 通过包装的 botApiGet 获取文件信息（携带 base 用于下载）
+    const { data: gfData, base: usedBase } = await botApiGet('getFile', { file_id: fileId }, cfg, proxy, token)
+    const filePath = gfData?.result?.file_path
     if (filePath) {
-      const ext = path.extname(filePath) || '.jpg'
-      const savePath = path.join(saveBase, `msg_${post.message_id}_photo${ext}`)
-      const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-      await downloadFile(fileUrl, savePath, agents)
-      node.push(segment.image(toFileUrl(savePath)))
-      files.push(savePath)
+      const abs = mapBotApiFileToHost(baseDir, token, filePath)
+      if (!fs.existsSync(abs)) await ensurePersistentCached(usedBase, token, filePath, proxy)
+      if (fs.existsSync(abs)) { node.push(segment.image(toFileUrl(abs))); files.push(abs) }
+      else { node.push('(图片缓存未就绪，已跳过)') }
     }
   }
 
@@ -141,24 +204,25 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
       return { node, files }
     }
     const fileId = post.video.file_id
-    const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-    const filePath = getFile?.data?.result?.file_path
+    const { data: gfData, base: usedBase } = await botApiGet('getFile', { file_id: fileId }, cfg, proxy, token)
+    const filePath = gfData?.result?.file_path
     if (filePath) {
-      const ext = path.extname(filePath) || '.mp4'
-      const savePath = path.join(saveBase, `msg_${post.message_id}_video${ext}`)
-      const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-      await downloadFile(fileUrl, savePath, agents)
-      // 尝试以视频格式发送到QQ，失败则回退为文本提示
-      try {
-        if (typeof segment.video === 'function') {
-          node.push(segment.video(toFileUrl(savePath)))
-        } else {
-          node.push(`(视频已保存: ${savePath})`)
+      const abs = mapBotApiFileToHost(baseDir, token, filePath)
+      if (!fs.existsSync(abs)) await ensurePersistentCached(usedBase, token, filePath, proxy)
+      if (fs.existsSync(abs)) {
+        try {
+          if (typeof segment.video === 'function') {
+            node.push(segment.video(toFileUrl(abs)))
+          } else {
+            node.push(`(视频已缓存: ${path.basename(abs)})`)
+          }
+        } catch (e) {
+          node.push(`(视频已缓存: ${path.basename(abs)})`)
         }
-      } catch (e) {
-        node.push(`(视频已保存: ${savePath})`)
+        files.push(abs)
+      } else {
+        node.push('(视频缓存未就绪，已跳过)')
       }
-      files.push(savePath)
     }
   }
 
@@ -167,43 +231,30 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
     const doc = post.document
     if (!maxBytes || !doc.file_size || doc.file_size <= maxBytes) {
       const fileId = doc.file_id
-      const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-      const filePath = getFile?.data?.result?.file_path
+      const { data: gfData, base: usedBase } = await botApiGet('getFile', { file_id: fileId }, cfg, proxy, token)
+      const filePath = gfData?.result?.file_path
       if (filePath) {
-        // 计算扩展名
-        let ext = path.extname(filePath)
-        if (!ext) {
-          const nameExt = path.extname(doc.file_name || '')
-          ext = nameExt || '.bin'
-        }
-        const savePath = path.join(saveBase, `msg_${post.message_id}_document${ext}`)
-        const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-        await downloadFile(fileUrl, savePath, agents)
-        // 根据类型选择片段：图片优先按图片段发送；视频按视频段；其他按文件段；都不支持则回退文本
-        const mime = doc.mime_type || ''
-        const lowerExt = (ext || '').toLowerCase()
-        try {
-          if (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(lowerExt)) {
-            node.push(segment.image(toFileUrl(savePath)))
-          } else if (mime.startsWith('video/') || ['.mp4', '.mov', '.mkv', '.avi', '.webm'].includes(lowerExt)) {
-            if (typeof segment.video === 'function') {
-              node.push(segment.video(toFileUrl(savePath)))
+        const abs = mapBotApiFileToHost(baseDir, token, filePath)
+        if (!fs.existsSync(abs)) await ensurePersistentCached(usedBase, token, filePath, proxy)
+        if (fs.existsSync(abs)) {
+          const mime = doc.mime_type || ''
+          const lowerExt = (path.extname(abs) || '').toLowerCase()
+          try {
+            if (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(lowerExt)) node.push(segment.image(toFileUrl(abs)))
+            else if (mime.startsWith('video/') || ['.mp4', '.mov', '.mkv', '.avi', '.webm'].includes(lowerExt)) {
+              if (typeof segment.video === 'function') node.push(segment.video(toFileUrl(abs)))
+              else node.push(`(视频已缓存: ${path.basename(abs)})`)
             } else {
-              node.push(`(视频已保存: ${savePath})`)
+              if (typeof segment.file === 'function') node.push(segment.file(toFileUrl(abs)))
+              else node.push(`(文件已缓存: ${doc.file_name || path.basename(abs)})`)
             }
-          } else {
-            // 尝试作为文件发送，失败则文本提示
-            if (typeof segment.file === 'function') {
-              node.push(segment.file(toFileUrl(savePath)))
-            } else {
-              node.push(`(文件已保存: ${doc.file_name || path.basename(savePath)})`)
-            }
+          } catch (e) {
+            node.push(`(文件已缓存: ${doc.file_name || path.basename(abs)})`)
           }
-        } catch (e) {
-          // 任何发送失败都回退为文本提示
-          node.push(`(文件已保存: ${doc.file_name || path.basename(savePath)})`)
+          files.push(abs)
+        } else {
+          node.push('(文件缓存未就绪，已跳过)')
         }
-        files.push(savePath)
       }
     } else {
       node.push('(文件超过大小上限，已跳过)')
@@ -214,14 +265,12 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
 }
 
 // 处理音频消息
-async function handleAudio(token, proxy, baseDir, post, agents, maxBytes) {
+async function handleAudio(token, proxy, baseDir, post, agents, maxBytes, cfg) {
   const node = []
   const files = []
   if (!post.audio && !post.voice) return { node, files }
   
   const audio = post.audio || post.voice
-  const channelKey = post.chat?.id || post.chat?.username || 'unknown'
-  const saveBase = buildDownloadDir(baseDir, channelKey)
   
   if (maxBytes && audio.file_size && audio.file_size > maxBytes) {
     node.push('(音频超过大小上限，已跳过)')
@@ -229,26 +278,23 @@ async function handleAudio(token, proxy, baseDir, post, agents, maxBytes) {
   }
   
   const fileId = audio.file_id
-  const getFile = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: fileId }, ...agents })
-  const filePath = getFile?.data?.result?.file_path
+  const { data: gfData, base: usedBase } = await botApiGet('getFile', { file_id: fileId }, cfg, proxy, token)
+  const filePath = gfData?.result?.file_path
   if (filePath) {
-    const ext = path.extname(filePath) || (post.voice ? '.ogg' : '.mp3')
-    const savePath = path.join(saveBase, `msg_${post.message_id}_audio${ext}`)
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${filePath}`
-    await downloadFile(fileUrl, savePath, agents)
-    
-    try {
-      if (typeof segment.record === 'function') {
-        node.push(segment.record(toFileUrl(savePath)))
-      } else if (typeof segment.file === 'function') {
-        node.push(segment.file(toFileUrl(savePath)))
-      } else {
-        node.push(`(音频已保存: ${audio.title || audio.file_name || path.basename(savePath)})`)
+    const abs = mapBotApiFileToHost(baseDir, token, filePath)
+    if (!fs.existsSync(abs)) await ensurePersistentCached(usedBase, token, filePath, proxy)
+    if (fs.existsSync(abs)) {
+      try {
+        if (typeof segment.record === 'function') node.push(segment.record(toFileUrl(abs)))
+        else if (typeof segment.file === 'function') node.push(segment.file(toFileUrl(abs)))
+        else node.push(`(音频已缓存: ${audio.title || audio.file_name || path.basename(abs)})`)
+      } catch (e) {
+        node.push(`(音频已缓存: ${audio.title || audio.file_name || path.basename(abs)})`)
       }
-    } catch (e) {
-      node.push(`(音频已保存: ${audio.title || audio.file_name || path.basename(savePath)})`)
+      files.push(abs)
+    } else {
+      node.push('(音频缓存未就绪，已跳过)')
     }
-    files.push(savePath)
   }
   
   return { node, files }
@@ -356,168 +402,48 @@ class TelegramRequestManager {
 
 const telegramAPI = new TelegramRequestManager()
 
-// 指令触发的TG消息拉取和转发 - 双模式支持
+// 指令触发的TG消息拉取和转发
 async function pullTelegramMessages(e) {
   try {
     const cfg = tgSetting.getConfig()
     const {
-      mode = 'teelebot',  // 默认使用teelebot模式
       token,
       proxy,
       batch = { size: 8 },
       dedup = { ttl_days: 7 },
-      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'temp', 'tg') },
-      channels = [],
-      teelebot = {}
+      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'model', 'tg', 'telegram-bot-api', 'telegram-bot-api-data') },
+      channels = []
     } = cfg || {}
+
+    if (!token) {
+      await e.reply('TG 未配置 token，无法拉取')
+      return false
+    }
 
     if (channels.length === 0) {
       await e.reply('TG 未配置监听频道，请先在配置文件中添加频道信息')
       return true  // 返回true表示正常结束，不是错误
     }
 
-    // 根据模式选择处理方式
-    if (mode === 'teelebot') {
-      logger.info('[TG] 使用Teelebot模式拉取消息...')
-      return await pullWithTeelebotMode(e, cfg)
-    } else {
-      logger.info('[TG] 使用本地模式拉取消息...')
-      return await pullWithLocalMode(e, cfg)
-    }
+    logger.info('[TG] 开始手动拉取TG消息...')
     
-  } catch (error) {
-    logger.error(`[TG] 拉取消息异常: ${error.message}`)
-    await e.reply(`TG 拉取失败: ${error.message}`)
-    return false
-  }
-}
-
-// Teelebot模式拉取
-async function pullWithTeelebotMode(e, cfg) {
-  try {
-    const {
-      teelebot = {},
-      channels = [],
-      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'model', 'tg', 'teelebot', 'plugins', 'TgChannel', 'download') },
-      batch = { size: 8 }
-    } = cfg
-
-    // 创建teelebot客户端
-            const initialApiUrl = resolveTeelebotApiUrl(teelebot)
-    let client = new TeelebotClient({
-      api_url: initialApiUrl,
-      timeout: teelebot.timeout || 30000
-    })
-
-    // Health check with local fallback when LAN IP fails
-    let healthCheck = await client.checkHealth()
-    if (!healthCheck.success) {
-      try {
-        const dockerPath = (teelebot && teelebot.docker_path) || path.join('plugins','yunzai-plugin-integration','model','tg','teelebot')
-        const cfgPath = path.join(process.cwd(), dockerPath, 'config', 'config.cfg')
-        const isLocalHostUrl = /^https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?/i.test(teelebot?.api_url || '')
-        if (fs.existsSync(cfgPath) && !isLocalHostUrl) {
-          const content = fs.readFileSync(cfgPath, 'utf8')
-          const m = content.match(/local_port\s*=\s*(\d+)/)
-          if (m && m[1]) {
-            const fallbackUrl = `http://127.0.0.1:${m[1]}`
-            logger.warn(`[TG] Teelebot health failed, try local fallback: ${fallbackUrl}`)
-            client = new TeelebotClient({ api_url: fallbackUrl, timeout: teelebot.timeout || 30000 })
-            healthCheck = await client.checkHealth()
-          }
-        }
-      } catch (err) {
-        logger.debug(`[TG] Fallback probe failed: ${err.message}`)
-      }
-    }
-
-    if (!healthCheck.success) {
-      logger.warn('[TG] Teelebot服务不可用，切换到本地模式')
-      return await pullWithLocalMode(e, cfg)
-    }
-
-    logger.info('[TG] Teelebot服务连接正常，开始拉取...')
-
-    // 准备状态文件路径
-    const stateFile = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration', 'data', 'tg', 'state.json')
-
-    // 调用teelebot拉取
-    const result = await client.pullMessages({
-      channels: channels,
-      download_dir: download.dir,
-      state_file: stateFile,
-      batch_size: batch.size
-    })
-
-    if (!result.success) {
-      logger.error(`[TG] Teelebot拉取失败: ${result.error}`)
-      await e.reply(`TG 拉取失败: ${result.error}`)
-      return false
-    }
-
-    const files = result.files || []
-    
-    if (files.length === 0) {
-      await e.reply('TG 无新消息')
-      logger.info('[TG] 拉取完成，无新消息')
-      return true
-    }
-
-    logger.info(`[TG] Teelebot拉取到 ${files.length} 个文件，开始处理转发...`)
-
-    // 处理下载的文件并转发
-    const processResult = await processTeelebotFiles(e, files, cfg)
-    
-    // 清理临时文件
-    await cleanupTeelebotFiles(files)
-    
-    return processResult
-
-  } catch (error) {
-    logger.error(`[TG] Teelebot模式异常: ${error.message}`)
-    logger.warn('[TG] 尝试切换到本地模式...')
-    return await pullWithLocalMode(e, cfg)
-  }
-}
-
-// 本地模式拉取（保留原有逻辑）
-async function pullWithLocalMode(e, cfg) {
-  try {
-    const {
-      token,
-      proxy,
-      batch = { size: 8 },
-      dedup = { ttl_days: 7 },
-      download = { dir: path.join('plugins', 'yunzai-plugin-integration', 'model', 'tg', 'teelebot', 'plugins', 'TgChannel', 'download') },
-      channels = []
-    } = cfg
-
-    if (!token) {
-      await e.reply('TG 本地模式未配置 token，无法拉取')
-      return false
-    }
-
-    logger.info('[TG] 使用本地模式拉取消息...')
-    
+    // 注意：官方端点请求可走代理；本地端点直连
     const agents = buildAgents(proxy)
+    const baseDir = download.dir
     const state = loadState()
     const offset = state.last_update_id ? state.last_update_id + 1 : undefined
 
     // 拉取更新（短轮询，快速获取）
-    const resp = await telegramAPI.executeRequest(token, async (controller) => {
-      return await axios.get(`https://api.telegram.org/bot${token}/getUpdates`, {
-        params: {
-          timeout: 5, // 短轮询，5秒超时
-          offset,
-          allowed_updates: ['channel_post', 'edited_channel_post']
-        },
-        ...agents,
-        timeout: 15000, // HTTP请求超时15秒
-        signal: controller.signal
-      })
+    const { data: updatesData } = await telegramAPI.executeRequest(token, async (controller) => {
+      return await botApiGet('getUpdates', {
+        timeout: 5, // 短轮询，5秒超时
+        offset,
+        // 支持群组(supergroup/group)与频道(channel)消息
+        allowed_updates: ['message', 'channel_post']
+      }, cfg, proxy, token, controller.signal, 15000)
     })
 
-    const updates = Array.isArray(resp?.data?.result) ? resp.data.result : []
+    const updates = Array.isArray(updatesData?.result) ? updatesData.result : []
     
     if (updates.length === 0) {
       await e.reply('TG 无新消息')
@@ -551,7 +477,7 @@ async function pullWithLocalMode(e, cfg) {
 
     for (const upd of updates) {
       maxUpdateId = Math.max(maxUpdateId, Number(upd.update_id || 0))
-      const post = upd.channel_post
+      const post = upd.channel_post || upd.message
       if (!post || !post.chat) continue
 
       const chId = post.chat.id
@@ -586,10 +512,10 @@ async function pullWithLocalMode(e, cfg) {
         const maxBytes = Number((download && download.max_file_mb ? download.max_file_mb : 20)) * 1024 * 1024
         
         // 处理主要媒体内容
-        const { node: mainNode, files: mainFiles } = await buildNodeFromChannelPost(token, proxy, download.dir, post, agents, maxBytes, cfg)
+        const { node: mainNode, files: mainFiles } = await buildNodeFromChannelPost(token, proxy, baseDir, post, agents, maxBytes, cfg)
         
         // 处理音频内容
-        const { node: audioNode, files: audioFiles } = await handleAudio(token, proxy, download.dir, post, agents, maxBytes)
+        const { node: audioNode, files: audioFiles } = await handleAudio(token, proxy, baseDir, post, agents, maxBytes, cfg)
         
         if (post.media_group_id) {
           if (!groupByTarget.has(tKey)) groupByTarget.set(tKey, new Map())
@@ -637,6 +563,7 @@ async function pullWithLocalMode(e, cfg) {
     // 发送与清理
     let totalSent = 0
     for (const [tKey, item] of listByTarget) {
+      let hadError = false
       if (groupByTarget.has(tKey)) {
         const groups = groupByTarget.get(tKey)
         for (const g of groups.values()) {
@@ -653,10 +580,37 @@ async function pullWithLocalMode(e, cfg) {
         } catch (err) {
           const msg = err?.response?.data?.description || err?.message || '未知错误'
           logger.error(`[TG] 合并转发发送失败: ${msg}`)
+          hadError = true
         }
       }
-      // 统一删除临时文件
-      for (const f of item.files) { try { fs.unlinkSync(f) } catch {} }
+      // 按策略清理：仅删除白名单目录内的已转发文件
+      try {
+        const cleanup = (cfg && cfg.cleanup) || {}
+        const rootDir = path.isAbsolute(download.dir) ? download.dir : path.join(process.cwd(), download.dir)
+        if (cleanup.delete_after_forward !== false && Array.isArray(item.files) && item.files.length) {
+          const allowDirs = Array.isArray(cleanup.allow_dirs) && cleanup.allow_dirs.length ? cleanup.allow_dirs : ['photos','videos','documents','audio','voice','stickers','animations','temp']
+          const allowSet = new Set(allowDirs)
+          for (const abs of item.files) {
+            try {
+              if (!abs) continue
+              const resolved = path.resolve(abs)
+              const resolvedRoot = path.resolve(rootDir)
+              if (!resolved.startsWith(resolvedRoot + path.sep)) { logger.warn(`[TG] 跳过清理(越界): ${abs}`); continue }
+              const rel = path.relative(resolvedRoot, resolved)
+              const segs = rel.split(path.sep)
+              if (segs.length < 2) { logger.warn(`[TG] 跳过清理(层级异常): ${rel}`); continue }
+              const subdir = segs[1]
+              if (!allowSet.has(subdir)) { logger.warn(`[TG] 跳过清理(目录不在白名单): ${rel}`); continue }
+              fs.unlinkSync(resolved)
+              logger.info(`[TG] 已删除文件: ${rel}`)
+            } catch (er) {
+              logger.warn(`[TG] 删除文件失败: ${er.message}`)
+            }
+          }
+        }
+      } catch (er) {
+        logger.warn(`[TG] 清理阶段异常: ${er.message}`)
+      }
     }
 
     // 保存偏移与去重集
@@ -677,226 +631,6 @@ async function pullWithLocalMode(e, cfg) {
   }
 }
 
-// 处理teelebot下载的文件并转发
-async function processTeelebotFiles(e, files, cfg) {
-  try {
-    const { channels = [], batch = { size: 8 } } = cfg
-    
-    // 按频道和目标分组文件
-    const groupedByTarget = new Map()
-    
-    for (const file of files) {
-      try {
-        // 查找对应的频道配置
-        const channelConfig = channels.find(ch => 
-          String(ch.id) === String(file.channel_id) || 
-          ch.username === file.channel_username
-        )
-        
-        if (!channelConfig || !channelConfig.target) {
-          logger.warn(`[TG] 找不到频道 ${file.channel_id} 的转发配置`)
-          continue
-        }
-        
-        const targetKey = `${channelConfig.target.type}:${channelConfig.target.id}`
-        
-        if (!groupedByTarget.has(targetKey)) {
-          groupedByTarget.set(targetKey, {
-            target: channelConfig.target,
-            messages: []
-          })
-        }
-        
-        // 转换文件为消息节点
-        const messageNode = await convertTeelebotFileToNode(file)
-        if (messageNode && messageNode.length > 0) {
-          groupedByTarget.get(targetKey).messages.push(messageNode)
-        }
-        
-      } catch (error) {
-        logger.error(`[TG] 处理文件异常 ${file.path}: ${error.message}`)
-      }
-    }
-    
-    // 发送到各个目标
-    let totalSent = 0
-    
-    for (const [targetKey, data] of groupedByTarget) {
-      try {
-        if (data.messages.length === 0) continue
-        
-        // 分批发送
-        const batchSize = batch.size || 8
-        const batches = []
-        
-        for (let i = 0; i < data.messages.length; i += batchSize) {
-          batches.push(data.messages.slice(i, i + batchSize))
-        }
-        
-        for (const messageBatch of batches) {
-          try {
-            const result = await sendForwardToTarget(e, data.target, messageBatch)
-            if (result) {
-              totalSent += messageBatch.length
-              logger.info(`[TG] 成功转发 ${messageBatch.length} 条消息到 ${targetKey}`)
-            }
-          } catch (error) {
-            logger.error(`[TG] 转发失败 ${targetKey}: ${error.message}`)
-          }
-        }
-        
-      } catch (error) {
-        logger.error(`[TG] 处理目标 ${targetKey} 异常: ${error.message}`)
-      }
-    }
-    
-    const replyMsg = totalSent > 0 ? `TG 拉取完成，转发了 ${totalSent} 条消息` : 'TG 拉取完成，无新消息需转发'
-    await e.reply(replyMsg)
-    logger.info(`[TG] ${replyMsg}`)
-    
-    return true
-    
-  } catch (error) {
-    logger.error(`[TG] 处理teelebot文件异常: ${error.message}`)
-    await e.reply(`TG 处理失败: ${error.message}`)
-    return false
-  }
-}
-
-// 转换teelebot文件为消息节点
-async function convertTeelebotFileToNode(file) {
-  try {
-    const node = []
-    const filePath = file.path
-    const fileType = file.type
-    
-    // 工具：路径转 file:// 统一斜杠
-    const toFileUrl = (p) => 'file://' + p.replace(/\\/g, '/')
-    
-    // 添加说明文本（如果有）
-    if (file.caption) {
-      node.push(file.caption)
-    }
-    
-    switch (fileType) {
-      case 'text':
-        // 文本内容直接添加
-        if (fs.existsSync(filePath)) {
-          const textContent = fs.readFileSync(filePath, 'utf-8')
-          if (textContent.trim()) {
-            node.push(textContent.trim())
-          }
-        }
-        break
-        
-      case 'photo':
-        // 图片转为segment
-        if (fs.existsSync(filePath)) {
-          node.push(segment.image(toFileUrl(filePath)))
-        }
-        break
-        
-      case 'video':
-        // 视频转为segment
-        if (fs.existsSync(filePath)) {
-          try {
-            if (typeof segment.video === 'function') {
-              node.push(segment.video(toFileUrl(filePath)))
-            } else {
-              node.push(`(视频已保存: ${path.basename(filePath)})`)
-            }
-          } catch (e) {
-            node.push(`(视频已保存: ${path.basename(filePath)})`)
-          }
-        }
-        break
-        
-      case 'audio':
-      case 'voice':
-        // 音频转为segment
-        if (fs.existsSync(filePath)) {
-          try {
-            if (typeof segment.record === 'function') {
-              node.push(segment.record(toFileUrl(filePath)))
-            } else if (typeof segment.file === 'function') {
-              node.push(segment.file(toFileUrl(filePath)))
-            } else {
-              node.push(`(音频已保存: ${path.basename(filePath)})`)
-            }
-          } catch (e) {
-            node.push(`(音频已保存: ${path.basename(filePath)})`)
-          }
-        }
-        break
-        
-      case 'document':
-        // 文档处理
-        if (fs.existsSync(filePath)) {
-          try {
-            const ext = path.extname(filePath).toLowerCase()
-            const mimeType = file.mime_type || ''
-            
-            if (mimeType.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
-              node.push(segment.image(toFileUrl(filePath)))
-            } else if (mimeType.startsWith('video/') || ['.mp4', '.mov', '.mkv', '.avi', '.webm'].includes(ext)) {
-              if (typeof segment.video === 'function') {
-                node.push(segment.video(toFileUrl(filePath)))
-              } else {
-                node.push(`(视频已保存: ${path.basename(filePath)})`)
-              }
-            } else {
-              if (typeof segment.file === 'function') {
-                node.push(segment.file(toFileUrl(filePath)))
-              } else {
-                node.push(`(文件已保存: ${path.basename(filePath)})`)
-              }
-            }
-          } catch (e) {
-            node.push(`(文件已保存: ${path.basename(filePath)})`)
-          }
-        }
-        break
-        
-      default:
-        if (fs.existsSync(filePath)) {
-          node.push(`(文件已保存: ${path.basename(filePath)})`)
-        }
-        break
-    }
-    
-    return node
-    
-  } catch (error) {
-    logger.error(`[TG] 转换文件节点异常: ${error.message}`)
-    return []
-  }
-}
-
-// 清理teelebot下载的文件
-async function cleanupTeelebotFiles(files) {
-  try {
-    let cleanedCount = 0
-    
-    for (const file of files) {
-      try {
-        if (file.path && fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path)
-          cleanedCount++
-        }
-      } catch (error) {
-        logger.warn(`[TG] 清理文件失败 ${file.path}: ${error.message}`)
-      }
-    }
-    
-    if (cleanedCount > 0) {
-      logger.info(`[TG] 已清理 ${cleanedCount} 个临时文件`)
-    }
-    
-  } catch (error) {
-    logger.error(`[TG] 清理临时文件异常: ${error.message}`)
-  }
-}
-
 export default class TgMonitor extends plugin {
   constructor() {
     super({
@@ -905,36 +639,80 @@ export default class TgMonitor extends plugin {
       event: 'message',
       priority: 500,
       rule: [
-        { reg: '^#tg$', fnc: 'manualPull' },
-        { reg: '^#tg拉取$', fnc: 'manualPull' },
-        { reg: '^#拉取tg$', fnc: 'manualPull' }
+        { reg: '^#tg$', fnc: 'manualPull', permission: 'master' },
+        { reg: '^#tg拉取$', fnc: 'manualPull', permission: 'master' },
+        { reg: '^#拉取tg$', fnc: 'manualPull', permission: 'master' },
+        { reg: '^#tg清理$', fnc: 'manualClean', permission: 'master' }
       ]
     })
   }
 
   // 手动拉取TG消息
   async manualPull(e) {
+    if (!e.isMaster) {
+      await e.reply('仅主人可用')
+      return false
+    }
     return await pullTelegramMessages(e)
   }
-}
-// 解析 teelebot API 地址（优先用配置；否则从 teelebot/config/config.cfg 的 local_port 推断）
-function resolveTeelebotApiUrl(teelebotCfg) {
-  try {
-    if (teelebotCfg && teelebotCfg.api_url) return teelebotCfg.api_url
-    const dockerPath = (teelebotCfg && teelebotCfg.docker_path) || path.join('plugins','yunzai-plugin-integration','model','tg','teelebot')
-    const cfgPath = path.join(process.cwd(), dockerPath, 'config', 'config.cfg')
-    if (fs.existsSync(cfgPath)) {
-      const content = fs.readFileSync(cfgPath, 'utf8')
-      const m = content.match(/local_port\s*=\s*(\d+)/)
-      if (m && m[1]) {
-        const url = `http://127.0.0.1:${m[1]}`
-        logger.info(`[TG] 自动解析 teelebot API 地址: ${url}`)
-        return url
+
+  // 手动清理缓存目录（仅主人可用）
+  async manualClean(e) {
+    try {
+      if (!e.isMaster) {
+        await e.reply('仅主人可用')
+        return false
       }
+      const cfg = tgSetting.getConfig()
+      const download = cfg?.download || {}
+      const cleanup = cfg?.cleanup || {}
+      const rootDir = path.isAbsolute(download.dir) ? download.dir : path.join(process.cwd(), download.dir || path.join('plugins','yunzai-plugin-integration','model','tg','telegram-bot-api','telegram-bot-api-data'))
+      const allowDirs = Array.isArray(cleanup.allow_dirs) && cleanup.allow_dirs.length ? cleanup.allow_dirs : ['photos','videos','documents','audio','voice','stickers','animations','temp']
+
+      const statSafe = p => { try { return fs.statSync(p) } catch { return null } }
+      const rmFilesRecursively = dir => {
+        let removed = 0
+        const s = statSafe(dir)
+        if (!s || !s.isDirectory()) return 0
+        for (const name of fs.readdirSync(dir)) {
+          const fp = path.join(dir, name)
+          const st = statSafe(fp)
+          if (!st) continue
+          if (st.isDirectory()) {
+            removed += rmFilesRecursively(fp)
+            // 保留空目录；如需删除空目录，可在此判断 fs.rmdirSync(fp)（可选）
+          } else {
+            try { fs.unlinkSync(fp); removed++ } catch {}
+          }
+        }
+        return removed
+      }
+
+      const rootStat = statSafe(rootDir)
+      if (!rootStat || !rootStat.isDirectory()) {
+        await e.reply('缓存目录不存在，无需清理')
+        return true
+      }
+
+      let total = 0, tokens = 0
+      for (const tokenDir of fs.readdirSync(rootDir)) {
+        const tokenPath = path.join(rootDir, tokenDir)
+        const st = statSafe(tokenPath)
+        if (!st || !st.isDirectory()) continue
+        tokens++
+        for (const sub of allowDirs) {
+          const p = path.join(tokenPath, sub)
+          total += rmFilesRecursively(p)
+        }
+      }
+      const msg = `TG 清理完成，共扫描 ${tokens} 个令牌目录，删除 ${total} 个文件。`
+      logger.info(`[TG] ${msg}`)
+      await e.reply(msg)
+      return true
+    } catch (err) {
+      logger.error(`[TG] 清理失败: ${err?.message || err}`)
+      await e.reply('TG 清理失败，请查看日志')
+      return false
     }
-  } catch (err) {
-    logger.debug(`[TG] 自动解析 teelebot api_url 失败: ${err.message}`)
   }
-  // 兜底：与 teelebot config.cfg.example 的默认端口一致
-  return 'http://127.0.0.1:8080'
 }

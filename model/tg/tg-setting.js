@@ -1,6 +1,6 @@
 // TG 配置读写模块（model/tg/tg-setting.js）
 // 作用：
-// - 首次运行将 config/default/dafult-tg-config.yaml 拷贝为 config/tg-config.yaml
+// - 首次运行将 config/default/default-tg-config.yaml 拷贝为 config/tg-config.yaml（兼容旧名）
 // - 提供 getConfig() 合并默认与用户配置；setConfig() 写回并尽量保留注释
 // - 监听配置文件变更（chokidar），自动失效缓存
 import fs from 'node:fs'
@@ -34,15 +34,20 @@ class TgSetting {
   }
 
   // 计算配置文件路径
-  // - type:'def' 使用 default-tg-config.yaml（修复拼写错误）
+  // - type:'def' 使用 default-tg-config.yaml（兼容历史拼写：dafult-tg-config.yaml）
   // - type:'config' 使用 tg-config.yaml（如不存在则从默认复制）
   getFilePath(name, type = 'config') {
     if (type === 'def') {
       // 名称参数无意义，固定映射到默认模板
-      return path.join(this.defPath, 'default-tg-config.yaml')
+      // 优先新文件名，找不到则回退老文件名
+      const newDef = path.join(this.defPath, 'default-tg-config.yaml')
+      const oldDef = path.join(this.defPath, 'dafult-tg-config.yaml')
+      return fs.existsSync(newDef) ? newDef : oldDef
     } else {
       const configFile = path.join(this.configPath, 'tg-config.yaml')
-      const defFile = path.join(this.defPath, 'default-tg-config.yaml')
+      const defNew = path.join(this.defPath, 'default-tg-config.yaml')
+      const defOld = path.join(this.defPath, 'dafult-tg-config.yaml')
+      const defFile = fs.existsSync(defNew) ? defNew : defOld
       if (!fs.existsSync(configFile) && fs.existsSync(defFile)) {
         try {
           fs.copyFileSync(defFile, configFile)

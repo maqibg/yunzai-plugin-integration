@@ -20,6 +20,10 @@ data/
 logs/
 temp/
 
+# Telegram Bot API (self-hosted) volumes — do not commit
+model/tg/telegram-bot-api/telegram-bot-api-data/
+model/tg/telegram-bot-api/telegram-bot-api-logs/
+
 
 # OS generated files
 .DS_Store
