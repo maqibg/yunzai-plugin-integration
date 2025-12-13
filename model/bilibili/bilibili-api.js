@@ -203,15 +203,12 @@ async function buildHeaders(customCookie = null, requireLogin = false) {
  */
 class BilibiliApi {
   /**
-   * 获取视频基础信息
+   * 获取视频基础信息（无需登录）
    */
   async getVideoInfo(bvid) {
-    const headers = await buildHeaders()
-    if (!headers) return null
-
     try {
       const url = `${API_ENDPOINTS.VIDEO_INFO}?bvid=${bvid}`
-      const res = await fetch(url, { headers })
+      const res = await fetch(url, { headers: DEFAULT_HEADERS })
       const json = await res.json()
 
       if (json.code === 62012) {
@@ -292,15 +289,36 @@ class BilibiliApi {
   }
 
   /**
-   * 获取在线观看人数
+   * 获取HTML5播放地址（无需登录，低画质）
+   * @param {number} aid 视频aid
+   * @param {number} cid 视频cid
+   * @param {number} qn 画质（默认16=360P）
+   */
+  async getPlayUrlHtml5(aid, cid, qn = 16) {
+    try {
+      const url = `${API_ENDPOINTS.VIDEO_PLAYURL_HTML5}?avid=${aid}&cid=${cid}&qn=${qn}&type=mp4&platform=html5`
+      const res = await fetch(url, { headers: DEFAULT_HEADERS })
+      const json = await res.json()
+
+      if (json.code !== 0) {
+        logger.error(`[Bilibili] 获取HTML5播放地址失败: ${json.message}`)
+        return null
+      }
+
+      return json.data
+    } catch (error) {
+      logger.error(`[Bilibili] 获取HTML5播放地址异常: ${error.message}`)
+      return null
+    }
+  }
+
+  /**
+   * 获取在线观看人数（无需登录）
    */
   async getOnlineCount(bvid, cid) {
-    const headers = await buildHeaders()
-    if (!headers) return null
-
     try {
       const url = `${API_ENDPOINTS.VIDEO_ONLINE}?bvid=${bvid}&cid=${cid}`
-      const res = await fetch(url, { headers })
+      const res = await fetch(url, { headers: DEFAULT_HEADERS })
       const json = await res.json()
 
       if (json.code !== 0) return 0
@@ -311,15 +329,12 @@ class BilibiliApi {
   }
 
   /**
-   * 获取用户卡片信息
+   * 获取用户卡片信息（无需登录）
    */
   async getUserCard(mid) {
-    const headers = await buildHeaders()
-    if (!headers) return null
-
     try {
       const url = `${API_ENDPOINTS.USER_CARD}?mid=${mid}`
-      const res = await fetch(url, { headers })
+      const res = await fetch(url, { headers: DEFAULT_HEADERS })
       const json = await res.json()
 
       if (json.code !== 0) {

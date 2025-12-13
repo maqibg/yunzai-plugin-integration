@@ -34,9 +34,10 @@ export const BILI_TICKET_HMAC_KEY = 'XgwSnGZ1p'
 
 // API端点
 export const API_ENDPOINTS = {
-  // 视频相关
-  VIDEO_INFO: 'https://api.bilibili.com/x/web-interface/wbi/view',
+  // 视频相关（普通版本，无需登录）
+  VIDEO_INFO: 'https://api.bilibili.com/x/web-interface/view',
   VIDEO_PLAYURL: 'https://api.bilibili.com/x/player/wbi/playurl',
+  VIDEO_PLAYURL_HTML5: 'https://api.bilibili.com/x/player/playurl',
   VIDEO_PAGELIST: 'https://api.bilibili.com/x/player/pagelist',
   VIDEO_ONLINE: 'https://api.bilibili.com/x/player/online/total',
   VIDEO_HAS_LIKE: 'https://api.bilibili.com/x/web-interface/archive/has/like',
