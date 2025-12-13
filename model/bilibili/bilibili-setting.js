@@ -27,13 +27,33 @@ class BilibiliSetting {
   }
 
   /**
-   * 初始化必要的目录
+   * 初始化必要的目录和配置文件
    */
   initPaths() {
     const dirs = [this.configPath, this.dataPath, this.tempPath]
     for (const dir of dirs) {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true })
+      }
+    }
+
+    // 检查并复制默认配置文件
+    this.ensureConfigFile()
+  }
+
+  /**
+   * 确保配置文件存在，不存在则从默认配置复制
+   */
+  ensureConfigFile() {
+    const configFile = path.join(this.configPath, 'bilibili.yaml')
+    const defFile = path.join(this.defPath, 'default-bilibili.yaml')
+
+    if (!fs.existsSync(configFile) && fs.existsSync(defFile)) {
+      try {
+        fs.copyFileSync(defFile, configFile)
+        logger.info('[Bilibili] 已自动创建配置文件: bilibili.yaml')
+      } catch (error) {
+        logger.error(`[Bilibili] 创建配置文件失败: ${error.message}`)
       }
     }
   }
