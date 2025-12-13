@@ -18,6 +18,20 @@ const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integratio
 let isDownloading = false
 
 /**
+ * 重置下载锁
+ */
+function resetDownloadLock() {
+  isDownloading = false
+}
+
+/**
+ * 获取下载状态
+ */
+function getDownloadStatus() {
+  return isDownloading
+}
+
+/**
  * 获取画质名称
  */
 function getQualityName(qn) {
@@ -511,5 +525,7 @@ export {
   downloadAndMerge,
   getQualityName,
   formatSize,
-  getStreamSize
+  getStreamSize,
+  resetDownloadLock,
+  getDownloadStatus
 }

@@ -7,7 +7,7 @@ import path from 'node:path'
 import moment from 'moment'
 import setting from '../../model/bilibili/bilibili-setting.js'
 import api from '../../model/bilibili/bilibili-api.js'
-import downloader, { formatSize, getQualityName } from '../../model/bilibili/bilibili-download.js'
+import downloader, { formatSize, getQualityName, resetDownloadLock, getDownloadStatus } from '../../model/bilibili/bilibili-download.js'
 
 const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration')
 
@@ -30,6 +30,10 @@ export class BilibiliVideo extends plugin {
         {
           reg: '^#?简介$',
           fnc: 'showIntro'
+        },
+        {
+          reg: '^#?终止下载$',
+          fnc: 'stopDownload'
         }
       ]
     })
@@ -239,6 +243,19 @@ export class BilibiliVideo extends plugin {
     const video = await downloader.download(e, videoData.bvid, videoData.pageIndex || 0, true)
     if (video) {
       await e.reply(video)
+    }
+    return true
+  }
+
+  /**
+   * 终止下载（重置下载锁）
+   */
+  async stopDownload(e) {
+    if (getDownloadStatus()) {
+      resetDownloadLock()
+      e.reply('已终止下载')
+    } else {
+      e.reply('当前没有正在进行的下载')
     }
     return true
   }
