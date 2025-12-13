@@ -78,11 +78,6 @@ export class BilibiliVideo extends plugin {
       }
     }
 
-    // 发送原链接
-    if (config.link?.showOriginal) {
-      await e.reply(`B站链接: https://b23.tv/${bvid}`)
-    }
-
     return true
   }
 
@@ -160,6 +155,11 @@ export class BilibiliVideo extends plugin {
     if (config.display?.showStats) {
       text += `\n\n播放: ${data.view}  弹幕: ${data.danmaku}  点赞: ${data.like}`
       text += `\n收藏: ${data.favorite}  投币: ${data.coin}  转发: ${data.share}`
+    }
+
+    // B站链接
+    if (config.link?.showOriginal) {
+      text += `\n\nB站链接: https://b23.tv/${data.bvid}`
     }
 
     // 构建消息：封面在前，文字在后
