@@ -130,7 +130,7 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -171,7 +171,7 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -212,7 +212,7 @@ export class BilibiliInteract extends plugin {
     const match = e.msg.match(/^#?投币(\d*)$/)
     const coinNum = Math.min(parseInt(match?.[1]) || 2, 2)
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -252,7 +252,7 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -302,7 +302,7 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) return true
 
     const csrf = await this.getCsrf()
@@ -341,7 +341,7 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -382,7 +382,7 @@ export class BilibiliInteract extends plugin {
 
     if (!mid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -422,7 +422,7 @@ export class BilibiliInteract extends plugin {
 
     if (!mid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) return true
 
     const csrf = await this.getCsrf()
@@ -453,7 +453,7 @@ export class BilibiliInteract extends plugin {
     const config = setting.getConfig()
     const folderIndex = config.interact?.defaultFavFolder || 1
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) return null
 
     try {
@@ -482,7 +482,7 @@ export class BilibiliInteract extends plugin {
 
     if (!mid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true
@@ -522,7 +522,7 @@ export class BilibiliInteract extends plugin {
 
     if (!mid) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) return true
 
     const csrf = await this.getCsrf()
@@ -555,7 +555,7 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData) return false
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       e.reply('请先执行 #b站登录')
       return true

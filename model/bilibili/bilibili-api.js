@@ -151,11 +151,14 @@ async function getBuvid(cookie) {
 
 /**
  * 构建完整Cookie
+ * @param {boolean} silent 是否静默模式（不输出警告）
  */
-async function buildCookie() {
+async function buildCookie(silent = false) {
   let cookie = setting.getCookie()
   if (!cookie) {
-    logger.warn('[Bilibili] 未配置Cookie，请先执行 #b站登录')
+    if (!silent) {
+      logger.debug('[Bilibili] 未配置Cookie，使用匿名模式')
+    }
     return null
   }
 
@@ -175,10 +178,19 @@ async function buildCookie() {
 
 /**
  * 构建请求头
+ * @param {string|null} customCookie 自定义cookie
+ * @param {boolean} requireLogin 是否必须登录，默认false
  */
-async function buildHeaders(customCookie = null) {
+async function buildHeaders(customCookie = null, requireLogin = false) {
   const cookie = customCookie || await buildCookie()
-  if (!cookie) return null
+
+  // 如果需要登录但没有cookie，返回null
+  if (requireLogin && !cookie) return null
+
+  // 无cookie时返回默认headers（匿名模式）
+  if (!cookie) {
+    return { ...DEFAULT_HEADERS }
+  }
 
   return {
     ...DEFAULT_HEADERS,

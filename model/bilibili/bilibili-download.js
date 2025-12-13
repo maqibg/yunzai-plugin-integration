@@ -269,7 +269,7 @@ class BilibiliDownloader {
       return null
     }
 
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) {
       if (sendMessage) e.reply('获取认证信息失败，请先执行 #b站登录')
       return null
@@ -400,7 +400,7 @@ class BilibiliDownloader {
    * 获取预估大小
    */
   async getEstimatedSize(bvid, cid, qn = 64) {
-    const headers = await buildHeaders()
+    const headers = await buildHeaders(null, true)
     if (!headers) return 0
 
     const playData = await api.getPlayUrl(bvid, cid, qn)
