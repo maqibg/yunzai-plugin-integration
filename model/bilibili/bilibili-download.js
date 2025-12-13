@@ -259,6 +259,7 @@ class BilibiliDownloader {
 
     const page = pages[pageIndex]
     const cid = page.cid
+    const aid = videoInfo.aid
 
     // 检查时长限制
     const duration = page.duration || videoInfo.duration
@@ -269,12 +270,15 @@ class BilibiliDownloader {
       return null
     }
 
+    // 检查是否登录
     const headers = await buildHeaders(null, true)
+
+    // 未登录时使用 HTML5 低画质下载
     if (!headers) {
-      if (sendMessage) e.reply('获取认证信息失败，请先执行 #b站登录')
-      return null
+      return await this.downloadHtml5(e, aid, cid, bvid, pageIndex, sendMessage)
     }
 
+    // 已登录：使用 DASH 高画质下载
     // 智能画质选择
     const qualityResult = await smartQualitySelection(bvid, cid, headers)
     if (!qualityResult.videoUrl || !qualityResult.audioUrl) {
@@ -363,6 +367,89 @@ class BilibiliDownloader {
       }, 60000)
 
       return video
+    } finally {
+      isDownloading = false
+    }
+  }
+
+  /**
+   * HTML5 低画质下载（无需登录）
+   * @param {object} e 消息事件
+   * @param {number} aid 视频aid
+   * @param {number} cid 视频cid
+   * @param {string} bvid BV号
+   * @param {number} pageIndex 分P索引
+   * @param {boolean} sendMessage 是否发送消息
+   */
+  async downloadHtml5(e, aid, cid, bvid, pageIndex, sendMessage = true) {
+    isDownloading = true
+
+    let downloadMsg = null
+    if (sendMessage) {
+      downloadMsg = await e.reply('开始下载视频 (360P)...', true)
+    }
+
+    try {
+      // 获取 HTML5 播放地址
+      const playData = await api.getPlayUrlHtml5(aid, cid, 16)
+      if (!playData?.durl?.[0]?.url) {
+        if (sendMessage) e.reply('获取视频地址失败')
+        return null
+      }
+
+      const videoUrl = playData.durl[0].url
+
+      // 下载视频
+      const tempDir = setting.tempPath
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true })
+      }
+      const outputPath = path.join(tempDir, `${bvid}_p${pageIndex + 1}.mp4`)
+
+      logger.mark('[Bilibili] 开始下载 HTML5 视频...')
+
+      const res = await fetch(videoUrl, {
+        headers: {
+          ...DEFAULT_HEADERS,
+          Referer: 'https://www.bilibili.com/'
+        }
+      })
+
+      if (!res.ok) {
+        if (sendMessage) e.reply('视频下载失败')
+        return null
+      }
+
+      const buffer = Buffer.from(await res.arrayBuffer())
+      fs.writeFileSync(outputPath, buffer)
+
+      logger.mark('[Bilibili] HTML5 视频下载完成')
+
+      // 撤回下载提示
+      if (downloadMsg?.message_id) {
+        try {
+          if (e.isGroup) {
+            await e.group.recallMsg(downloadMsg.message_id)
+          } else {
+            await e.friend.recallMsg(downloadMsg.message_id)
+          }
+        } catch { }
+      }
+
+      const video = segment.video(outputPath)
+
+      // 发送后延迟删除临时文件
+      setTimeout(() => {
+        if (fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath)
+        }
+      }, 60000)
+
+      return video
+    } catch (error) {
+      logger.error(`[Bilibili] HTML5 下载失败: ${error.message}`)
+      if (sendMessage) e.reply('视频下载失败')
+      return null
     } finally {
       isDownloading = false
     }

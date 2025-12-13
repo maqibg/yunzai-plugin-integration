@@ -205,7 +205,7 @@ export class BilibiliVideo extends plugin {
   async shouldAutoDownload(bvid, pageIndex, config) {
     const videoConfig = config.video || {}
 
-    // 检查文件大小限制
+    // 检查是否可以下载（时长、分P检查）
     const checkResult = await downloader.canDownload(bvid, pageIndex)
     if (!checkResult.can) return false
 
@@ -213,10 +213,20 @@ export class BilibiliVideo extends plugin {
     const cid = checkResult.page?.cid
     if (!cid) return false
 
+    // 尝试获取预估大小（需要登录）
     const estimatedSize = await downloader.getEstimatedSize(bvid, cid, videoConfig.quality || 64)
-    const threshold = (videoConfig.sendThreshold || 100) * 1048576
 
-    return estimatedSize > 0 && estimatedSize <= threshold
+    // 未登录时无法获取大小，但 HTML5 360P 视频通常较小，基于时长判断
+    if (estimatedSize === 0) {
+      // 未登录：5分钟内的视频自动下载（360P约15MB/分钟）
+      const duration = checkResult.page?.duration || 0
+      const maxDuration = videoConfig.autoDownloadDuration || 300 // 默认5分钟
+      return duration > 0 && duration <= maxDuration
+    }
+
+    // 已登录：基于文件大小判断
+    const threshold = (videoConfig.sendThreshold || 100) * 1048576
+    return estimatedSize <= threshold
   }
 
   /**
