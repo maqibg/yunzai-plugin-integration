@@ -228,9 +228,9 @@ export class BilibiliPush extends plugin {
           const msg = [
             segment.image(upInfo.face),
             `\nUP主: ${upInfo.name} 发布了新视频`,
-            `\n\n📺 ${latestVideo.title}`,
-            `\n🔗 https://www.bilibili.com/video/${latestVideo.bvid}`,
-            `\n📅 ${moment(latestVideo.created * 1000).format('MM-DD HH:mm')}`,
+            `\n\n标题: ${latestVideo.title}`,
+            `\n链接: https://www.bilibili.com/video/${latestVideo.bvid}`,
+            `\n日期: ${moment(latestVideo.created * 1000).format('MM-DD HH:mm')}`,
             latestVideo.pic ? segment.image(latestVideo.pic) : ''
           ].filter(Boolean)
 

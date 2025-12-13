@@ -221,11 +221,11 @@ export class BilibiliComment extends plugin {
    * 发送评论详情
    */
   async sendCommentDetail(e, comment, subComments) {
-    let text = `👤 ${comment.name} (Lv.${comment.level})`
-    if (comment.location) text += ` 📍${comment.location}`
-    text += `\n⏰ ${comment.time}`
+    let text = `用户: ${comment.name} (Lv.${comment.level})`
+    if (comment.location) text += ` IP属地: ${comment.location}`
+    text += `\n时间: ${comment.time}`
     text += `\n\n${comment.content}`
-    text += `\n\n👍 ${comment.likeCount}`
+    text += `\n\n点赞: ${comment.likeCount}`
 
     await e.reply(text)
 

@@ -138,24 +138,24 @@ export class BilibiliVideo extends plugin {
    */
   async sendVideoInfo(e, data, config) {
     // 标题
-    let text = `📺 ${data.title}`
+    let text = `[视频] ${data.title}`
     if (data.pageCount > 1) {
-      text += `\n📑 P${data.pageIndex + 1}/${data.pageCount}: ${data.pagePart}`
+      text += `\n[分P] P${data.pageIndex + 1}/${data.pageCount}: ${data.pagePart}`
     }
 
     // 统计数据
     if (config.display?.showStats) {
-      text += `\n\n▶️ ${data.view}  💬 ${data.danmaku}  👍 ${data.like}`
-      text += `\n⭐ ${data.favorite}  💰 ${data.coin}  🔄 ${data.share}`
+      text += `\n\n播放: ${data.view}  弹幕: ${data.danmaku}  点赞: ${data.like}`
+      text += `\n收藏: ${data.favorite}  投币: ${data.coin}  转发: ${data.share}`
     }
 
     // UP主
-    text += `\n\n👤 ${data.upName} (粉丝: ${data.upFans})`
-    text += `\n📅 ${data.pubdate}  ⏱️ ${data.duration}`
+    text += `\n\nUP主: ${data.upName} (粉丝: ${data.upFans})`
+    text += `\n日期: ${data.pubdate}  时长: ${data.duration}`
 
     // 简介
     if (config.display?.showDesc && data.desc) {
-      text += `\n\n📝 ${data.desc}`
+      text += `\n\n简介: ${data.desc}`
     }
 
     // 构建消息：封面在前，文字在后
@@ -265,7 +265,7 @@ export class BilibiliVideo extends plugin {
       return true
     }
 
-    await e.reply(`📝 视频简介：\n\n${desc}`)
+    await e.reply(`视频简介：\n\n${desc}`)
     return true
   }
 

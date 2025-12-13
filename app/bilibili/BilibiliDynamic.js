@@ -231,11 +231,11 @@ export class BilibiliDynamic extends plugin {
     const messages = []
 
     // 作者信息
-    let text = `👤 ${data.authorName}\n📅 ${data.pubTime}`
+    let text = `作者: ${data.authorName}\n日期: ${data.pubTime}`
 
     // 标题
     if (data.title) {
-      text += `\n\n📌 ${data.title}`
+      text += `\n\n标题: ${data.title}`
     }
 
     // 内容
@@ -244,7 +244,7 @@ export class BilibiliDynamic extends plugin {
     }
 
     // 统计
-    text += `\n\n👍 ${data.likeCount}  💬 ${data.commentCount}  🔄 ${data.forwardCount}`
+    text += `\n\n点赞: ${data.likeCount}  评论: ${data.commentCount}  转发: ${data.forwardCount}`
 
     messages.push(text)
     const msgResult = await e.reply(messages)

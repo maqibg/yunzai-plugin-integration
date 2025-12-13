@@ -214,7 +214,7 @@ export class BilibiliParser extends plugin {
       await redis.set(key, JSON.stringify(pageData), { EX: setting.getConfig().multiPage?.timeout || 300 })
 
       // 发送分P选择提示
-      let msg = `📺 该视频共 ${pages.length} P，请发送 #p数字 选择分P：\n`
+      let msg = `该视频共 ${pages.length} P，请发送 #p数字 选择分P：\n`
       const showCount = Math.min(pages.length, 10)
       for (let i = 0; i < showCount; i++) {
         const p = pages[i]
