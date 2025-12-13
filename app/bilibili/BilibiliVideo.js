@@ -138,11 +138,11 @@ export class BilibiliVideo extends plugin {
    */
   async sendVideoInfo(e, data, config) {
     // 标题
-    let text = `[视频] ${data.title}`
+    let text = `标题: ${data.title}`
 
     // 分P
     if (data.pageCount > 1) {
-      text += `\n[分P] P${data.pageIndex + 1}/${data.pageCount}: ${data.pagePart}`
+      text += `\n分P: P${data.pageIndex + 1}/${data.pageCount} ${data.pagePart}`
     }
 
     // UP主
