@@ -24,6 +24,9 @@ temp/
 model/tg/telegram-bot-api/telegram-bot-api-data/
 model/tg/telegram-bot-api/telegram-bot-api-logs/
 
+# FFmpeg binaries (too large for GitHub)
+model/ffmpeg/
+
 
 # OS generated files
 .DS_Store

@@ -198,6 +198,9 @@ async function downloadAndMerge(videoUrl, audioUrl, outputPath, headers) {
   const videoPath = path.join(tempDir, 'video.m4s')
   const audioPath = path.join(tempDir, 'audio.m4s')
 
+  // 使用项目内的 ffmpeg
+  const ffmpegPath = path.join(pluginRoot, 'model', 'ffmpeg', 'ffmpeg')
+
   try {
     logger.mark('[Bilibili] 开始下载视频和音频...')
 
@@ -212,7 +215,7 @@ async function downloadAndMerge(videoUrl, audioUrl, outputPath, headers) {
     // FFmpeg合并
     logger.mark('[Bilibili] 开始合并音视频...')
 
-    const ffmpegCmd = `ffmpeg -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a copy -f mp4 -y -loglevel error "${outputPath}"`
+    const ffmpegCmd = `"${ffmpegPath}" -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a copy -f mp4 -y -loglevel error "${outputPath}"`
 
     execSync(ffmpegCmd, {
       cwd: tempDir,
