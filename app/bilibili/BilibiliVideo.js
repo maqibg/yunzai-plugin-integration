@@ -218,9 +218,9 @@ export class BilibiliVideo extends plugin {
 
     // 未登录时无法获取大小，但 HTML5 360P 视频通常较小，基于时长判断
     if (estimatedSize === 0) {
-      // 未登录：5分钟内的视频自动下载（360P约15MB/分钟）
+      // 未登录：使用 durationLimit 判断，默认10分钟
       const duration = checkResult.page?.duration || 0
-      const maxDuration = videoConfig.autoDownloadDuration || 300 // 默认5分钟
+      const maxDuration = videoConfig.durationLimit || 600
       return duration > 0 && duration <= maxDuration
     }
 
