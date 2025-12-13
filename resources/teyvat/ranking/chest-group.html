@@ -1,0 +1,341 @@
+<html lang="en">
+<style>
+    @font-face {
+        font-family: "FangZhen";
+        src: url("../../fonts/HYWH-65W.ttf");
+    }
+
+    .list::-webkit-scrollbar-track {
+        -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+        background-color: #F5F5F5;
+    }
+
+    .list::-webkit-scrollbar {
+        width: 6px;
+        background-color: #F5F5F5;
+    }
+
+    .list::-webkit-scrollbar-thumb {
+        background-color: #646464;
+    }
+
+    body {
+        font-family: FangZhen, "PanelFont", sans-serif;
+        width: 780px;
+        color: rgba(225, 212, 236, 0.8);
+        transform: scale(2);
+        transform-origin: 0 0;
+        height: auto;
+        background-color: rgb(50, 98, 71);
+        background-image: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-position: left top;
+    }
+
+    .footer {
+        color: #f95405;
+        position: absolute;
+        bottom: 7px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-weight: bold;
+        font-size: 20px;
+        padding: 6px;
+        border-radius: 15px;
+        backdrop-filter: blur(5px);
+        box-shadow: 0 0 10px rgb(26, 28, 12);
+        max-width: calc(100% - 20px);
+        text-align: center;
+    }
+
+    .container {
+        width: 740px;
+        background-color: rgba(9, 11, 2, 0.73);
+        margin: auto;
+        padding: 1rem;
+        border-radius: 20px;
+        box-shadow: 7px 9px 7px #00000052;
+        position: absolute;
+    }
+
+    .container .leader {
+        display: flex;
+    }
+
+    .container .crown {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .container .crown svg {
+        width: 3rem;
+    }
+
+    .container .image {
+        height: 58px;
+        object-fit: cover;
+        width: 58px;
+        background-color: black;
+        border-radius: 50%;
+    }
+
+    .container .topLeadersList {
+        display: flex;
+        position: relative;
+        min-height: 120px;
+        padding-top: 3rem;
+    }
+
+    .container .topLeadersList .image {
+        border-radius: 50%;
+        border: 3px solid rgba(193, 191, 82, 0.8);
+    }
+
+    .container .topLeadersList .leader:nth-child(1) {
+        color: black;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .container .topLeadersList .leader:nth-child(1):after {
+        content: "1";
+        width: 30px;
+        height: 30px;
+        background: #ffc500;
+        border-radius: 50%;
+        position: absolute;
+        right: 0;
+        text-align: center;
+        line-height: 30px;
+        font-weight: 700;
+        box-shadow: 1px 1px 4px black;
+    }
+
+    .container .topLeadersList .leader:nth-child(1) .image {
+        width: 130px;
+        height: 130px;
+    }
+
+    .container .topLeadersList .leader:nth-child(1) .crown {
+        top: -20%;
+    }
+
+    .container .topLeadersList .leader:nth-child(1) .crown svg {
+        fill: #ffc500;
+    }
+
+    .container .topLeadersList .leader:nth-child(2) {
+        color: black;
+        position: absolute;
+        left: 15%;
+        transform: translateX(-15%);
+        bottom: -20%;
+    }
+
+    .container .topLeadersList .leader:nth-child(2):after {
+        content: "2";
+        width: 30px;
+        height: 30px;
+        background: #d4d4d4;
+        border-radius: 50%;
+        position: absolute;
+        right: 0;
+        text-align: center;
+        line-height: 30px;
+        font-weight: 700;
+        box-shadow: 1px 1px 4px black;
+    }
+
+    .container .topLeadersList .leader:nth-child(2) .image {
+        width: 110px;
+        height: 110px;
+    }
+
+    .container .topLeadersList .leader:nth-child(2) .crown {
+        top: -25%;
+    }
+
+    .container .topLeadersList .leader:nth-child(2) .crown svg {
+        fill: #d4d4d4;
+    }
+
+    .container .topLeadersList .leader:nth-child(3) {
+        color: black;
+        position: absolute;
+        left: 85%;
+        transform: translateX(-85%);
+        bottom: -20%;
+    }
+
+    .container .topLeadersList .leader:nth-child(3):after {
+        content: "3";
+        width: 30px;
+        height: 30px;
+        background: #ab6528;
+        border-radius: 50%;
+        position: absolute;
+        right: 0;
+        text-align: center;
+        line-height: 30px;
+        font-weight: 700;
+        box-shadow: 1px 1px 4px black;
+    }
+
+    .container .topLeadersList .leader:nth-child(3) .image {
+        width: 110px;
+        height: 110px;
+    }
+
+    .container .topLeadersList .leader:nth-child(3) .crown {
+        top: -25%;
+    }
+
+    .container .topLeadersList .leader:nth-child(3) .crown svg {
+        fill: #ab6528;
+    }
+
+    .container .leaderName {
+        position: absolute;
+        text-align: center;
+        color: white;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 22px;
+    }
+
+    .container .player {
+        background-color: rgb(77 116 31 / 30%);
+        display: grid;
+        grid-template-columns: 0.4fr 2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+        align-items: center;
+        min-height: 42px;
+        text-align: center;
+        padding-right: 0.4rem;
+    }
+
+    .container .player .image {
+        width: 28px;
+        height: 28px;
+        border: 1.5px solid white;
+    }
+
+    .container .table {
+        margin-right: 0.1rem;
+        display: grid;
+        font-size: 14px;
+        grid-template-columns: 0.4fr 2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+        text-align: center;
+    }
+
+    .container .table div:nth-child(2) {
+        text-align: left;
+        margin-left: 5px;
+    }
+
+    .container .playerslist {
+        margin-top: 6rem;
+        font-size: 16px;
+        overflow: hidden;
+        color: white;
+        font-family: "PanelNumFont", tttgbnumber, monospace;
+    }
+
+    .container .playerslist .player:nth-child(odd) {
+        background-color: rgb(171 122 22 / 30%);
+        align-items: center;
+    }
+
+    .container .user {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .container .list {
+        overflow: scroll;
+        overflow-x: hidden;
+    }
+</style>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>宝箱排行榜</title>
+</head>
+<body>
+<h1>○#宝箱排行榜<br>○上榜请先通过【#宝箱排行】指令来写入数据</h1>
+<div class="container">
+    <div class="topLeadersList">
+        <div class="leader">
+            <div class="containerImage">
+                <img class="image" loading="lazy" src="https://q1.qlogo.cn/g?b=qq&nk={{ Top3[0].qq }}&s=160">
+                <div class="crown">
+                    <svg id="crown1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">
+                        <polygon class="cls-1" points="12.7 50 87.5 50 100 0 75 25 50 0 25.6 25 0 0 12.7 50"></polygon>
+                    </svg>
+                </div>
+                <div class="leaderName" style="color: #f6c53f">{{Top3[0].total_index}}</div>
+            </div>
+        </div>
+        <div class="leader">
+            <div class="containerImage">
+                <img class="image" loading="lazy" src="https://q1.qlogo.cn/g?b=qq&nk={{ Top3[1].qq }}&s=160">
+                <div class="crown">
+                    <svg id="crown1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">
+                        <polygon class="cls-1" points="12.7 50 87.5 50 100 0 75 25 50 0 25.6 25 0 0 12.7 50"></polygon>
+                    </svg>
+                </div>
+                <div class="leaderName" style="color: rgba(225,212,236,0.8)">{{Top3[1].total_index}}</div>
+            </div>
+        </div>
+        <div class="leader">
+            <div class="containerImage">
+                <img class="image" loading="lazy" src="https://q1.qlogo.cn/g?b=qq&nk={{ Top3[2].qq }}&s=160">
+                <div class="crown">
+                    <svg id="crown1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">
+                        <polygon class="cls-1" points="12.7 50 87.5 50 100 0 75 25 50 0 25.6 25 0 0 12.7 50"></polygon>
+                    </svg>
+                </div>
+                <div class="leaderName" style="color: rgba(241,132,23,0.8)">{{Top3[2].total_index}}</div>
+            </div>
+        </div>
+    </div>
+    <div class="playerslist">
+        <div class="table">
+            <div>Top</div>
+            <div>Info / UID</div>
+            <div style="color: #0feddb">全服Top</div>
+            <div>得分</div>
+            <div>华丽</div>
+            <div>珍贵</div>
+            <div>精致</div>
+            <div>普通</div>
+            <div>总计</div>
+        </div>
+        <div class="list">
+            {{each rankedData members }}
+            <div class="player">
+                <span>{{members.rank}}</span>
+                <div class="user">
+                    <img class="image" src="https://q1.qlogo.cn/g?b=qq&nk={{ members.qq }}&s=160">
+                    <span>{{members.uid}}</span>
+                </div>
+                <span style="color: #0feddb">{{members.total_index}}</span>
+                <span>{{members.grade}}</span>
+                <span>{{members.luxurious}}</span>
+                <span>{{members.precious}}</span>
+                <span>{{members.exquisite}}</span>
+                <span>{{members.common}}</span>
+                <span>{{members.total_box}}</span>
+            </div>
+            {{/each}}
+        </div>
+    </div>
+</div>
+<div class="footer">
+    <span style="color:#961909">{{YunzaiName}} {{YunzaiVersion}}</span>
+    &amp; <span style="color:#c31eef">yunzai-plugin-integration {{version}}</span>
+</div>
+</body>
+</html>

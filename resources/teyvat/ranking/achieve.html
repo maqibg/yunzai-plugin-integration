@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<style>
+    body {
+        transform: scale(1.5);
+        transform-origin: 0 0;
+        background-image: url({{AchieveHtml.AcgBg}});
+        width: 800px;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-attachment: scroll;
+        background-size: cover;
+        background-color: #2a5a3a;
+    }
+</style>
+<head>
+    <meta charset="utf-8">
+    <title>成就排行</title>
+    <link rel="stylesheet" href="{{CssPath}}style.css">
+</head>
+<body>
+<div data-v-32b84ec5=""></div>
+<img src="{{@AchieveHtml.user_img}}" height="256" width="256" class="c10089"/>
+<img src="https://template-1253409072.cos.ap-guangzhou.myqcloud.com/user-upload-images/1086/Txk3.png" class="c11873"/>
+<div class="c5635">UID:{{@AchieveHtml.uid}}<br/>『{{@AchieveHtml.name}}』 <br/>{{@AchieveHtml.nickname}}</div>
+<div class="c9830">达成成就:【{{@AchieveHtml.allAc}}】/{{@achievement}}个</div>
+<div class="c6855">[官服 &amp; B服] ：第{{@AchieveHtml.top}}名</div>
+<div class="c7013">排名称号：{{@AchieveHtml.title}}</div>
+<div class="c7092">排名得分：{{@AchieveHtml.score}}</div>
+<div class="c15854">yunzai-plugin-integration × Teyvat</div>
+</body>
+</html>

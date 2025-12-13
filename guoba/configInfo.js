@@ -1,10 +1,10 @@
 import { hsDingzhenSchema } from './schemas/hs-dingzhen.js'
-import { lotusParserSchema } from './schemas/lotus-parser.js'
+import { getBilibiliConfigSchema } from './schemas/bilibili.js'
 import { rconsoleSchema } from './schemas/rconsole.js'
 import { tgSchema } from './schemas/tg.js'
 import tgSetting from '../model/tg/tg-setting.js'
 import hsSetting from '../model/hs/hs-setting.js'
-import lotusSetting from '../model/lotus/lotus-setting.js'
+import bilibiliSetting from '../model/bilibili/bilibili-setting.js'
 import rconsoleSetting from '../model/rconsole/rconsole-setting.js'
 
 // 将所有 schema 导出一个统一的配置对象
@@ -15,10 +15,10 @@ export const config = {
       title: '坤坤丁真功能配置',
       ...hsDingzhenSchema
     },
-    {
-      title: 'Lotus解析器配置',
-      ...lotusParserSchema
-    },
+    ...getBilibiliConfigSchema().map(schema => ({
+      title: schema.title,
+      cfg: schema.cfg
+    })),
     {
       title: 'Rconsole 查询与趣味',
       ...rconsoleSchema
@@ -44,12 +44,12 @@ export const config = {
     }
     
     try {
-      console.log('[锅巴配置] 读取lotus-parser配置...')
-      result['lotus-parser'] = lotusSetting.getConfig('lotus-parser')
-      console.log('[锅巴配置] lotus-parser配置读取成功')
+      console.log('[锅巴配置] 读取bilibili配置...')
+      result['bilibili'] = bilibiliSetting.getConfig()
+      console.log('[锅巴配置] bilibili配置读取成功')
     } catch (error) {
-      console.error('[锅巴配置] 读取lotus-parser配置失败:', error.message, error.stack)
-      result['lotus-parser'] = {}
+      console.error('[锅巴配置] 读取bilibili配置失败:', error.message, error.stack)
+      result['bilibili'] = {}
     }
     
     try {
@@ -83,9 +83,9 @@ export const config = {
         if (success) saved = true
       }
       
-      // 保存lotus-parser配置
-      if (data['lotus-parser']) {
-        const success = lotusSetting.setConfig('lotus-parser', data['lotus-parser'])
+      // 保存bilibili配置
+      if (data['bilibili']) {
+        const success = bilibiliSetting.setConfig(data['bilibili'])
         if (success) saved = true
       }
       

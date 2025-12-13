@@ -1,0 +1,128 @@
+/* 提瓦特小助手 - 成就/宝箱排行卡片样式 */
+
+@font-face {
+    font-family: "PanelFont";
+    src: url(../../fonts/HYWH-65W.ttf);
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "PanelNumFont";
+    src: url(../../fonts/tttgbnumber.ttf);
+    font-weight: 400;
+    font-style: normal;
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    font-family: "PanelFont", sans-serif;
+    min-height: 500px;
+}
+
+/* 用户头像 */
+.c10089 {
+    position: absolute;
+    top: 50px;
+    left: 50px;
+    border-radius: 50%;
+    border: 4px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* 装饰图片 */
+.c11873 {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 120px;
+    height: auto;
+    opacity: 0.9;
+}
+
+/* UID和名称信息 */
+.c5635 {
+    position: absolute;
+    top: 60px;
+    left: 330px;
+    color: #ffffff;
+    font-size: 28px;
+    font-weight: bold;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    line-height: 1.6;
+}
+
+/* 成就/宝箱总计 */
+.c9830 {
+    position: absolute;
+    top: 200px;
+    left: 330px;
+    color: #ffd700;
+    font-size: 32px;
+    font-weight: bold;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    font-family: "PanelNumFont", "PanelFont", sans-serif;
+}
+
+/* 服务器排名 */
+.c6855 {
+    position: absolute;
+    top: 260px;
+    left: 330px;
+    color: #00ffcc;
+    font-size: 26px;
+    font-weight: bold;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    font-family: "PanelNumFont", "PanelFont", sans-serif;
+}
+
+/* 宝箱详情 (华丽/珍贵/精致/普通) */
+.c6934 {
+    position: absolute;
+    top: 320px;
+    left: 50px;
+    color: #ffffff;
+    font-size: 22px;
+    line-height: 1.8;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.3);
+    padding: 15px 25px;
+    border-radius: 15px;
+    font-family: "PanelNumFont", "PanelFont", sans-serif;
+}
+
+/* 排名称号 */
+.c7013 {
+    position: absolute;
+    top: 320px;
+    left: 330px;
+    color: #ff9500;
+    font-size: 24px;
+    font-weight: bold;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* 排名得分 */
+.c7092 {
+    position: absolute;
+    top: 370px;
+    left: 330px;
+    color: #ff5722;
+    font-size: 28px;
+    font-weight: bold;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    font-family: "PanelNumFont", "PanelFont", sans-serif;
+}
+
+/* 版权信息 */
+.c15854 {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 16px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+}
