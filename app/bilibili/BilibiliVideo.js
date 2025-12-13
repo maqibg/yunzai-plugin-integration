@@ -137,13 +137,6 @@ export class BilibiliVideo extends plugin {
    * @returns {Promise<object>} 消息发送结果
    */
   async sendVideoInfo(e, data, config) {
-    const messages = []
-
-    // 封面
-    if (config.display?.showCover && data.pic) {
-      messages.push(segment.image(data.pic))
-    }
-
     // 标题
     let text = `📺 ${data.title}`
     if (data.pageCount > 1) {
@@ -165,6 +158,11 @@ export class BilibiliVideo extends plugin {
       text += `\n\n📝 ${data.desc}`
     }
 
+    // 构建消息：封面在前，文字在后
+    const messages = []
+    if (config.display?.showCover && data.pic) {
+      messages.push(segment.image(data.pic))
+    }
     messages.push(text)
 
     return await e.reply(messages)
