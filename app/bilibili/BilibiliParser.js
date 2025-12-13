@@ -16,7 +16,7 @@ export class BilibiliParser extends plugin {
       priority: 0,
       rule: [
         {
-          reg: '(b23\\.tv|bilibili\\.com|BV[a-zA-Z0-9]{10}|av\\d+)',
+          reg: '(bilibili\\.com|b23\\.tv|bili2233\\.cn|t\\.bilibili\\.com|BV[1-9a-zA-Z]{10})',
           fnc: 'parseMessage',
           log: false
         },
