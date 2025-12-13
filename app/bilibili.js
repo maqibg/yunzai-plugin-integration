@@ -9,25 +9,23 @@ const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integratio
 const appDir = path.join(pluginRoot, 'app', 'bilibili')
 
 // 动态加载所有模块
-const modules = {}
+const apps = {}
 const files = fs.readdirSync(appDir).filter(f => f.endsWith('.js'))
 
 for (const file of files) {
   try {
     const modulePath = `./bilibili/${file}`
     const mod = await import(modulePath)
-    Object.assign(modules, mod)
+    // 将每个模块中的类添加到 apps
+    for (const [name, cls] of Object.entries(mod)) {
+      if (typeof cls === 'function') {
+        apps[name] = cls
+      }
+    }
   } catch (error) {
     logger.error(`[Bilibili] 加载模块失败 [${file}]: ${error.message}`)
   }
 }
 
-export const {
-  BilibiliParser,
-  BilibiliVideo,
-  BilibiliDynamic,
-  BilibiliComment,
-  BilibiliInteract,
-  BilibiliLogin,
-  BilibiliPush
-} = modules
+// 导出 apps 对象，供主入口识别
+export { apps }
