@@ -159,7 +159,7 @@ export class BilibiliVideo extends plugin {
 
     // B站链接
     if (config.link?.showOriginal) {
-      text += `\n\nB站链接: https://b23.tv/${data.bvid}`
+      text += `\n\nhttps://b23.tv/${data.bvid}`
     }
 
     // 构建消息：封面在前，文字在后
