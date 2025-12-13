@@ -13,7 +13,7 @@ export class BilibiliParser extends plugin {
       name: '[Bilibili]链接解析',
       dsc: 'B站链接自动解析',
       event: 'message',
-      priority: 100,
+      priority: 0,
       rule: [
         {
           reg: '',

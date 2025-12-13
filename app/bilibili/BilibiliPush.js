@@ -12,7 +12,7 @@ export class BilibiliPush extends plugin {
       name: '[Bilibili]视频推送',
       dsc: 'B站UP主视频推送',
       event: 'message.group',
-      priority: 106,
+      priority: 0,
       rule: [
         {
           reg: '^#?(添加|开启)(b站|B站|bili|bilibili)推送(\\d+)$',

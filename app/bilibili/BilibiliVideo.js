@@ -17,7 +17,7 @@ export class BilibiliVideo extends plugin {
       name: '[Bilibili]视频处理',
       dsc: 'B站视频解析和下载',
       event: 'message',
-      priority: 101,
+      priority: 0,
       rule: [
         {
           reg: '^#?(下载视频|视频下载|获取视频)$',
