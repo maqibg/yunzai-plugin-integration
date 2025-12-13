@@ -13,7 +13,7 @@ export class BilibiliInteract extends plugin {
       name: '[Bilibili]互动操作',
       dsc: 'B站点赞投币收藏等',
       event: 'message',
-      priority: 0,
+      priority: -120,
       rule: [
         {
           reg: '^#?(点赞|赞)$',

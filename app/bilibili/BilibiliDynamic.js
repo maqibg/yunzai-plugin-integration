@@ -16,7 +16,7 @@ export class BilibiliDynamic extends plugin {
       name: '[Bilibili]动态处理',
       dsc: 'B站动态解析',
       event: 'message',
-      priority: 0,
+      priority: -120,
       rule: []
     })
   }

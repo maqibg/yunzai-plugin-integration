@@ -116,7 +116,7 @@ async function getBiliTicket(csrf) {
 
     const data = await response.json()
     if (data.code === 0 && data.data?.ticket) {
-      await redis.set(REDIS_PREFIX.BILI_TICKET, data.data.ticket, { EX: 259200 })
+      await redis.set(REDIS_PREFIX.BILI_TICKET, data.data.ticket, { EX: 3600 })
       logger.mark('[Bilibili] 生成BiliTicket成功')
       return data.data.ticket
     }

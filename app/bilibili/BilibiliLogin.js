@@ -15,7 +15,7 @@ export class BilibiliLogin extends plugin {
       name: '[Bilibili]登录管理',
       dsc: 'B站扫码登录和Cookie管理',
       event: 'message',
-      priority: 0,
+      priority: -120,
       rule: [
         {
           reg: '^#?(b站|B站|bili|bilibili)(扫码)?登(录|陆|路)$',

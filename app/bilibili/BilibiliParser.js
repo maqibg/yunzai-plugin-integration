@@ -2,6 +2,7 @@
  * Bilibili 链接解析器
  * 负责链接识别、分P选择、消息路由
  */
+import fs from 'node:fs'
 import setting from '../../model/bilibili/bilibili-setting.js'
 import api from '../../model/bilibili/bilibili-api.js'
 import { URL_PATTERNS, REDIS_PREFIX } from '../../model/bilibili/bilibili-const.js'
@@ -13,7 +14,7 @@ export class BilibiliParser extends plugin {
       name: '[Bilibili]链接解析',
       dsc: 'B站链接自动解析',
       event: 'message',
-      priority: 0,
+      priority: -120,
       rule: [
         {
           reg: '(bilibili\\.com|b23\\.tv|bili2233\\.cn|t\\.bilibili\\.com|BV[1-9a-zA-Z]{10})',
@@ -26,6 +27,46 @@ export class BilibiliParser extends plugin {
         }
       ]
     })
+
+    // 定时清理缓存任务（每小时执行一次）
+    this.task = {
+      cron: '0 0 * * * *',
+      name: '[Bilibili]清理缓存',
+      fnc: () => this.clearCache(),
+      log: false
+    }
+  }
+
+  /**
+   * 清理缓存文件
+   */
+  async clearCache() {
+    try {
+      const tempDir = setting.tempPath
+      if (!fs.existsSync(tempDir)) return
+
+      const files = fs.readdirSync(tempDir)
+      const now = Date.now()
+      const expireTime = 3600000 // 1小时过期
+
+      let count = 0
+      for (const file of files) {
+        const filePath = `${tempDir}/${file}`
+        try {
+          const stat = fs.statSync(filePath)
+          if (now - stat.mtimeMs > expireTime) {
+            fs.unlinkSync(filePath)
+            count++
+          }
+        } catch { }
+      }
+
+      if (count > 0) {
+        logger.mark(`[Bilibili] 清理缓存完成，删除 ${count} 个文件`)
+      }
+    } catch (error) {
+      logger.error(`[Bilibili] 清理缓存失败: ${error.message}`)
+    }
   }
 
   /**

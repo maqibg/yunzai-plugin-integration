@@ -13,7 +13,7 @@ export class BilibiliComment extends plugin {
       name: '[Bilibili]评论系统',
       dsc: 'B站评论区功能',
       event: 'message',
-      priority: 0,
+      priority: -120,
       rule: [
         {
           reg: '^#?展开(\\d+)$',
