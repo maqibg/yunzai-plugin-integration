@@ -2,6 +2,20 @@
 
 # 队伍简写配置
 # 可以自定义队伍简写，发送 #队伍伤害 简写名 即可展开为完整队伍
+#
+# --- 简写/别名教程（编辑 config/teyvat-config.yaml 可热加载）---
+# 1) 指令：#队伍伤害 <简写名|别名>
+#    例如：#队伍伤害 草神激化   或   #队伍伤害 草激化
+# 2) 写法：teamShortcuts 下每个 key 就是“简写名”
+#    - chars：角色列表（建议 4 个），可用多行 `-` 或一行 `[A, B, C, D]`
+#    - alias：可选，别名列表；输入别名时等同于输入 key
+# 3) 注意：本文件是默认模板；实际生效请编辑 `plugins/yunzai-plugin-integration/config/teyvat-config.yaml`
+#
+# 示例：
+# teamShortcuts:
+#   草神激化:
+#     chars: [纳西妲, 八重神子, 雷电将军, 钟离]
+#     alias: [草激化, 激化队]
 teamShortcuts:
   # 国家队
   国家队:
