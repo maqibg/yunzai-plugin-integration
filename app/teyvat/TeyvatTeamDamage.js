@@ -7,13 +7,15 @@
 import plugin from '../../../../lib/plugins/plugin.js'
 import puppeteer from '../../../../lib/puppeteer/puppeteer.js'
 import _ from 'lodash'
+import fetch from 'node-fetch'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Format } from '../../../miao-plugin/components/index.js'
 import { Character, Player } from '../../../miao-plugin/models/index.js'
 import teyvatSetting from '../../model/teyvat/teyvat-setting.js'
-import { getTeyvatData, getServer } from '../../model/teyvat/teyvat-api.js'
+import { getTeyvatData, getServer, requestEnka } from '../../model/teyvat/teyvat-api.js'
 import { attrsKeys } from '../../model/teyvat/teyvat-const.js'
+import { transFromEnka, transToTeyvatRequest } from '../../model/teyvat/teyvat-transform.js'
 
 const _path = process.cwd()
 const pluginRoot = path.join(_path, 'plugins', 'yunzai-plugin-integration')
@@ -128,11 +130,11 @@ export class TeyvatTeamDamage extends plugin {
       }
     }
 
-    // 获取角色数据
+    // 获取角色数据（优先本地面板；缺失则回退 Enka 展柜）
     const player = Player.create(uid)
     const rolesData = {}
     const weaponsData = {}
-    const teyvatBody = { uid, role_data: [] }
+    const avatarDatas = []
     const noDataList = []
     const hasDataList = []
 
@@ -145,31 +147,32 @@ export class TeyvatTeamDamage extends plugin {
 
       hasDataList.push(char.name)
 
-      // 转换数据格式
+      // 渲染所需数据
       const roleData = this.convertProfileData(profile)
       rolesData[char.name] = roleData
       weaponsData[char.name] = roleData.weapon
 
-      const teyvatData = this.convertToTeyvatFormat(profile, uid)
-      teyvatBody.role_data.push(teyvatData)
+      // API 请求体所需数据（统一走 transToTeyvatRequest，包含特殊修正）
+      avatarDatas.push(this.profileToAvatarData(profile))
     }
 
     if (noDataList.length > 0) {
-      e.reply(`UID${uid}：缺少 ${noDataList.join('|')} 的面板数据\n请先【#更新面板】获取角色数据`, true)
-      return true
+      // 回退到 Enka 展柜数据（不强制要求本地面板）
+      e.reply(`UID${uid}：本地面板缺少 ${noDataList.join('|')}，尝试使用 Enka 展柜数据计算...`, true)
+      return await this.teamDamageByEnka(e, uid, teamChars, detail)
     }
 
-    // 设置服务器
-    const server = getServer(uid, true)
-    if (server) {
-      teyvatBody.server = server
-    }
+    const teyvatBody = await transToTeyvatRequest(avatarDatas, uid)
 
     e.reply(`正在计算 UID${uid} 的队伍伤害：${hasDataList.join('|')}`)
     logger.info(`[提瓦特小助手] 队伍伤害请求: UID${uid} - ${hasDataList.join('|')}`)
 
     // 调用提瓦特 API
     const result = await getTeyvatData(teyvatBody, 'team')
+    if (result?.error) {
+      e.reply(result.error, true)
+      return true
+    }
     if (result.code !== 200 || !result.result) {
       logger.error(`[提瓦特小助手] API 返回错误: ${JSON.stringify(result)}`)
       e.reply('提瓦特小助手接口返回错误，请稍后再试')
@@ -232,38 +235,35 @@ export class TeyvatTeamDamage extends plugin {
       return true
     }
 
-    // 获取角色数据
+    // 获取角色数据（优先本地面板；缺失则回退 Enka 展柜）
     const player = Player.create(uid)
     const profile = player.getProfile(char.id)
 
     if (!profile || !profile.hasData) {
-      e.reply(`UID${uid}：缺少 ${char.name} 的面板数据\n请先【#更新面板】获取角色数据`, true)
-      return true
+      e.reply(`UID${uid}：本地面板缺少 ${char.name}，尝试使用 Enka 展柜数据计算...`, true)
+      return await this.singleRatingByEnka(e, uid, char)
     }
 
     const rolesData = {}
     const weaponsData = {}
-    const teyvatBody = { uid, role_data: [] }
 
-    // 转换数据格式
+    // 渲染所需数据
     const roleData = this.convertProfileData(profile)
     rolesData[char.name] = roleData
     weaponsData[char.name] = roleData.weapon
 
-    const teyvatData = this.convertToTeyvatFormat(profile, uid)
-    teyvatBody.role_data.push(teyvatData)
-
-    // 设置服务器
-    const server = getServer(uid, true)
-    if (server) {
-      teyvatBody.server = server
-    }
+    // API 请求体
+    const teyvatBody = await transToTeyvatRequest([this.profileToAvatarData(profile)], uid)
 
     e.reply(`正在计算 UID${uid} ${char.name} 的伤害评级...`)
     logger.info(`[提瓦特小助手] 单人评级请求: UID${uid} - ${char.name}`)
 
     // 调用提瓦特 API
     const result = await getTeyvatData(teyvatBody, 'team')
+    if (result?.error) {
+      e.reply(result.error, true)
+      return true
+    }
     if (result.code !== 200 || !result.result) {
       logger.error(`[提瓦特小助手] API 返回错误: ${JSON.stringify(result)}`)
       e.reply('提瓦特小助手接口返回错误，请稍后再试')
@@ -370,11 +370,125 @@ export class TeyvatTeamDamage extends plugin {
    */
   getTeamConfig() {
     const config = teyvatSetting.getConfig('teyvat-config')
-    return config.teamShortcuts || {}
+    const shortcuts = config.teamShortcuts || {}
+
+    // 建立“别名 -> 正式队伍”的索引，避免在解析处堆 if/else
+    const index = {}
+    for (const [name, val] of Object.entries(shortcuts)) {
+      index[name] = val
+      const alias = Array.isArray(val) ? [] : (val?.alias || [])
+      for (const a of alias) {
+        if (!a || index[a]) continue
+        index[a] = val
+      }
+    }
+
+    return index
   }
 
   /**
-   * 转换 Profile 数据为内部格式
+   * 将 miao 面板 Profile 转为统一的 avatarData（供 transToTeyvatRequest 使用）
+   */
+  profileToAvatarData(profile) {
+    const a = profile.attr
+    const base = profile.base
+
+    const elemMap = {
+      pyro: '火元素伤害加成',
+      hydro: '水元素伤害加成',
+      electro: '雷元素伤害加成',
+      anemo: '风元素伤害加成',
+      cryo: '冰元素伤害加成',
+      geo: '岩元素伤害加成',
+      dendro: '草元素伤害加成'
+    }
+
+    const fightProp = {
+      '生命值': a.hp,
+      '攻击力': a.atk,
+      '防御力': a.def,
+      '元素精通': a.mastery,
+      '暴击率': a.cpct,
+      '暴击伤害': a.cdmg,
+      '治疗加成': a.heal,
+      '元素充能效率': a.recharge,
+      '火元素伤害加成': 0,
+      '水元素伤害加成': 0,
+      '雷元素伤害加成': 0,
+      '风元素伤害加成': 0,
+      '冰元素伤害加成': 0,
+      '岩元素伤害加成': 0,
+      '草元素伤害加成': 0,
+      '物理伤害加成': a.phy
+    }
+
+    const elemKey = elemMap[profile.elem]
+    if (elemKey) {
+      fightProp[elemKey] = a.dmg
+    }
+
+    const artisDetail = profile.getArtisMark()
+    const relicSet = artisDetail?.sets || {}
+
+    // 组装圣遗物（尽量复用现有数据格式，不引入新依赖）
+    const relics = []
+    let idx = 0
+    for (const key in profile.artis.artis) {
+      const artis = profile.artis.artis[key]
+      const mainProp = attrsKeys[artis.main.key] || ''
+      const mainValue = artisDetail?.artis?.[key]?.main?.value?.replace(/,/g, '') || ''
+
+      const sub = []
+      for (const subKey in artis.attrs) {
+        const subProp = attrsKeys[artis.attrs[subKey].key] || ''
+        const subValue = artisDetail?.artis?.[key]?.attrs?.[subKey]?.value?.replace(/,/g, '') || ''
+        if (subProp && subValue !== '') {
+          sub.push({ prop: subProp, value: subValue })
+        }
+      }
+
+      relics.push({
+        pos: idx + 1,
+        name: artis.name,
+        level: artis.level,
+        main: { prop: mainProp, value: mainValue },
+        sub
+      })
+
+      idx++
+    }
+
+    return {
+      name: profile.char.name,
+      cons: profile.cons,
+      level: profile.level,
+      element: attrsKeys[profile.elem],
+      baseProp: {
+        '生命值': base.hp,
+        '攻击力': base.atk,
+        '防御力': base.def
+      },
+      fightProp,
+      weapon: {
+        name: profile.weapon.name,
+        rarity: profile.weapon.star,
+        affix: profile.weapon.affix,
+        level: profile.weapon.level,
+        icon: profile.weapon.img,
+        weaponPath: `${profile.weapon.type}/${profile.weapon.name}`
+      },
+      skills: {
+        a: { level: profile.talent.a.level, originLvl: profile.talent.a.original, style: profile.talent.a.level > profile.talent.a.original ? 'extra' : '', icon: `Skill_A_${profile.char.name}` },
+        e: { level: profile.talent.e.level, originLvl: profile.talent.e.original, style: profile.talent.e.level > profile.talent.e.original ? 'extra' : '', icon: `Skill_S_${profile.char.name}` },
+        q: { level: profile.talent.q.level, originLvl: profile.talent.q.original, style: profile.talent.q.level > profile.talent.q.original ? 'extra' : '', icon: `Skill_E_${profile.char.name}` }
+      },
+      relics,
+      relicSet
+    }
+  }
+
+  /**
+   * 转换 Profile 数据为渲染所需格式
    */
   convertProfileData(profile) {
     return {
@@ -412,88 +526,173 @@ export class TeyvatTeamDamage extends plugin {
   }
 
   /**
-   * 转换为提瓦特 API 格式
+   * Enka 回退：队伍伤害
    */
-  convertToTeyvatFormat(profile, uid) {
-    const a = profile.attr
-    const base = profile.base
-
-    const attr = {}
-    _.each(['hp', 'def', 'atk', 'mastery'], (key) => {
-      const fn = (n) => Format.comma(n, key === 'hp' ? 0 : 1)
-      attr[key] = fn(a[key])
-      attr[`${key}Base`] = fn(base[key])
-    })
-    _.each(['cpct', 'cdmg', 'recharge', 'dmg'], (key) => {
-      let key2 = key
-      if (key === 'dmg' && a.phy > a.dmg) key2 = 'phy'
-      attr[key] = Format.pct(a[key2])
-    })
-
-    const artisDetail = profile.getArtisMark()
-    let artifacts = ''
-    for (const key in artisDetail.sets) {
-      artifacts = artifacts ? `${artifacts}+${key}${artisDetail.sets[key]}` : `${key}${artisDetail.sets[key]}`
+  async teamDamageByEnka(e, uid, teamChars, detail) {
+    const avatars = await this.getEnkaAvatars(uid)
+    if (avatars?.error) {
+      e.reply(avatars.error, true)
+      return true
     }
 
-    const artifactsDetail = []
-    const posNames = ['生之花', '死之羽', '时之沙', '空之杯', '理之冠']
-    let idx = 0
-    for (const key in profile.artis.artis) {
-      const artis = profile.artis.artis[key]
-      const detail = {
-        artifacts_name: artis.name,
-        artifacts_type: posNames[idx] || '',
-        level: artis.level,
-        maintips: attrsKeys[artis.main.key],
-        mainvalue: artisDetail.artis[key]?.main?.value?.replace(/,/g, '') || ''
+    // 选择所需角色
+    const extract = []
+    const rolesData = {}
+    const weaponsData = {}
+
+    for (const char of teamChars) {
+      const found = avatars.find(a => a?.name === char.name)
+      if (!found) {
+        e.reply(`UID${uid} 的展柜数据中未发现 ${char.name}（可能未展示/已隐藏）`, true)
+        return true
       }
 
-      let tipIdx = 0
-      for (const attrKey in artis.attrs) {
-        tipIdx++
-        const attrName = attrsKeys[artis.attrs[attrKey].key]
-        const attrValue = artisDetail.artis[key].attrs[attrKey]?.value?.replace(/,/g, '') || ''
-        detail[`tips${tipIdx}`] = `${attrName}+${attrValue}`
+      // 补齐武器路径（用于渲染）
+      const weaponPath = this.resolveWeaponPath(found.weapon?.name)
+      found.weapon = { ...(found.weapon || {}), weaponPath }
+
+      rolesData[char.name] = found
+      weaponsData[char.name] = { weaponPath }
+      extract.push(found)
+    }
+
+    const teyvatBody = await transToTeyvatRequest(extract, uid)
+
+    e.reply(`正在计算 UID${uid} 的队伍伤害(Enka)：${teamChars.map(c => c.name).join('|')}`)
+    logger.info(`[提瓦特小助手] 队伍伤害(Enka)请求: UID${uid} - ${teamChars.map(c => c.name).join('|')}`)
+
+    const result = await getTeyvatData(teyvatBody, 'team')
+    if (result?.error) {
+      e.reply(result.error, true)
+      return true
+    }
+    if (result.code !== 200 || !result.result) {
+      logger.error(`[提瓦特小助手] API 返回错误(Enka): ${JSON.stringify(result)}`)
+      e.reply('提瓦特小助手接口返回错误，请稍后再试')
+      return true
+    }
+
+    const data = await this.simpleTeamDamageRes(result.result, rolesData)
+    for (const key in weaponsData) {
+      if (data.avatars[key]) {
+        data.avatars[key].weapon.imgPath = weaponsData[key].weaponPath
       }
-
-      artifactsDetail.push(detail)
-      idx++
     }
 
-    return {
-      uid,
-      role: profile.char.name,
-      role_class: profile.cons,
-      level: profile.level,
-      weapon: profile.weapon.name,
-      weapon_level: profile.weapon.level,
-      weapon_class: `精炼${profile.weapon.affix}阶`,
-      hp: Format.int(attr.hp?.replace(/,/g, '') || ''),
-      base_hp: Format.int(attr.hpBase?.replace(/,/g, '') || ''),
-      attack: Format.int(attr.atk?.replace(/,/g, '') || ''),
-      base_attack: Format.int(attr.atkBase?.replace(/,/g, '') || ''),
-      defend: Format.int(attr.def?.replace(/,/g, '') || ''),
-      base_defend: Format.int(attr.defBase?.replace(/,/g, '') || ''),
-      element: Format.int(attr.mastery?.replace(/,/g, '') || ''),
-      crit: attr.cpct,
-      crit_dmg: attr.cdmg,
-      heal: Format.pct(a.heal),
-      recharge: attr.recharge,
-      fire_dmg: profile.elem === 'pyro' ? Format.pct(a.dmg) : Format.pct(0),
-      water_dmg: profile.elem === 'hydro' ? Format.pct(a.dmg) : Format.pct(0),
-      ice_dmg: profile.elem === 'cryo' ? Format.pct(a.dmg) : Format.pct(0),
-      thunder_dmg: profile.elem === 'electro' ? Format.pct(a.dmg) : Format.pct(0),
-      wind_dmg: profile.elem === 'anemo' ? Format.pct(a.dmg) : Format.pct(0),
-      rock_dmg: profile.elem === 'geo' ? Format.pct(a.dmg) : Format.pct(0),
-      grass_dmg: profile.elem === 'dendro' ? Format.pct(a.dmg) : Format.pct(0),
-      physical_dmg: Format.pct(a.phy),
-      ability1: profile.talent.a.level,
-      ability2: profile.talent.e.level,
-      ability3: profile.talent.q.level,
-      artifacts,
-      artifacts_detail: artifactsDetail
+    const screenData = await this.getScreenData(e, data, detail)
+    const img = await puppeteer.screenshot('TeyvatTeamDamage', screenData)
+    await e.reply(img)
+    return true
+  }
+
+  /**
+   * Enka 回退：单人评级
+   */
+  async singleRatingByEnka(e, uid, char) {
+    const avatars = await this.getEnkaAvatars(uid)
+    if (avatars?.error) {
+      e.reply(avatars.error, true)
+      return true
     }
+
+    const found = avatars.find(a => a?.name === char.name)
+    if (!found) {
+      e.reply(`UID${uid} 的展柜数据中未发现 ${char.name}（可能未展示/已隐藏）`, true)
+      return true
+    }
+
+    const weaponPath = this.resolveWeaponPath(found.weapon?.name)
+    found.weapon = { ...(found.weapon || {}), weaponPath }
+
+    const rolesData = { [char.name]: found }
+    const teyvatBody = await transToTeyvatRequest([found], uid)
+
+    e.reply(`正在计算 UID${uid} ${char.name} 的伤害评级(Enka)...`)
+    logger.info(`[提瓦特小助手] 单人评级(Enka)请求: UID${uid} - ${char.name}`)
+
+    const result = await getTeyvatData(teyvatBody, 'team')
+    if (result?.error) {
+      e.reply(result.error, true)
+      return true
+    }
+    if (result.code !== 200 || !result.result) {
+      logger.error(`[提瓦特小助手] API 返回错误(Enka): ${JSON.stringify(result)}`)
+      e.reply('提瓦特小助手接口返回错误，请稍后再试')
+      return true
+    }
+
+    const data = await this.simpleTeamDamageRes(result.result, rolesData)
+    if (data.avatars[char.name]) {
+      data.avatars[char.name].weapon.imgPath = weaponPath
+    }
+
+    const screenData = await this.getScreenData(e, data, false)
+    const img = await puppeteer.screenshot('TeyvatSingleRating', screenData)
+    await e.reply(img)
+    return true
+  }
+
+  /**
+   * 获取 Enka 展柜角色数据（带缓存）
+   */
+  async getEnkaAvatars(uid) {
+    const cacheKey = `teyvat:enka:${uid}`
+    const now = Date.now()
+
+    try {
+      const cached = await redis.get(cacheKey)
+      if (cached) {
+        const json = JSON.parse(cached)
+        if (json?.next && now < json.next && Array.isArray(json.avatars) && json.avatars.length > 0) {
+          return json.avatars
+        }
+      }
+    } catch { }
+
+    const jsonCfg = teyvatSetting.getTeyvatUrlJson() || {}
+    const needKeys = ['CHAR_DATA', 'HASH_TRANS', 'CALC_RULES', 'RELIC_APPEND']
+    const missing = needKeys.filter(k => !jsonCfg[k] || Object.keys(jsonCfg[k]).length === 0)
+    if (missing.length > 0) {
+      return { error: `缺少提瓦特配置数据(${missing.join(',')})，请先执行：#更新提瓦特配置` }
+    }
+
+    const enka = await requestEnka(uid)
+    if (enka?.error) return { error: enka.error }
+
+    const avatars = []
+    const ts = now
+    const avatarList = Array.isArray(enka.avatarInfoList)
+      ? enka.avatarInfoList
+      : Object.values(enka.avatarInfoList || {})
+
+    for (const info of avatarList) {
+      // 旅行者
+      if ([10000005, 10000007].includes(info.avatarId)) continue
+      const a = await transFromEnka(jsonCfg, info, ts)
+      if (!a || a.error) continue
+      avatars.push(a)
+    }
+
+    const ttl = Number(enka.ttl || 60)
+    const next = now + (ttl + 20) * 1000
+    const store = { next, updatedAt: now, avatars }
+
+    try {
+      await redis.set(cacheKey, JSON.stringify(store))
+      await redis.expire(cacheKey, Math.max(120, ttl + 120))
+    } catch { }
+
+    return avatars
+  }
+
+  resolveWeaponPath(weaponName) {
+    if (!weaponName) return ''
+    const types = ['sword', 'claymore', 'polearm', 'bow', 'catalyst']
+    for (const t of types) {
+      const p = path.join(miaoRes, 'meta-gs', 'weapon', t, weaponName, 'icon.webp')
+      if (fs.existsSync(p)) return `${t}/${weaponName}`
+    }
+    return ''
   }
 
   /**

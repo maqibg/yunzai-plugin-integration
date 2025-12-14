@@ -2,6 +2,7 @@
  * 提瓦特小助手 API 调用
  */
 import fetch from 'node-fetch'
+import teyvatSetting from './teyvat-setting.js'
 
 // 提瓦特小助手请求头（模拟微信小程序）
 const headers = {
@@ -22,7 +23,12 @@ const apiMap = {
  * @returns {Promise<Object>} API 返回数据
  */
 export async function getTeyvatData(body, type = 'single') {
+  const cfg = teyvatSetting.getConfig('teyvat-config') || {}
+  const timeoutMs = Number(cfg.api?.timeout) || 15000
+
   try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
     const response = await fetch(apiMap[type], {
       method: 'POST',
       headers: {
@@ -30,11 +36,12 @@ export async function getTeyvatData(body, type = 'single') {
         ...headers
       },
       body: JSON.stringify(body),
-      timeout: 15000
+      signal: controller.signal
     })
+    clearTimeout(timer)
     return await response.json()
   } catch (error) {
-    logger.error(`[提瓦特小助手] API 请求失败: ${error.message}`)
+    logger.error(`[提瓦特小助手] API 请求失败: ${error.name || 'Error'} ${error.message || ''}`)
     return { error: '提瓦特小助手接口无法访问或返回错误' }
   }
 }
@@ -45,6 +52,9 @@ export async function getTeyvatData(body, type = 'single') {
  * @returns {Promise<Object>} 面板数据
  */
 export async function requestEnka(uid) {
+  const cfg = teyvatSetting.getConfig('teyvat-config') || {}
+  const timeoutMs = Number(cfg.api?.enkaTimeout) || 20000
+
   const enkaMirrors = [
     'https://enka.network',
     'http://profile.microgg.cn'
@@ -61,6 +71,8 @@ export async function requestEnka(uid) {
     const apiName = root.includes('microgg') ? 'MicroGG API' : 'Enka API'
 
     try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
       const res = await fetch(`${root}/api/uid/${uid}`, {
         headers: {
           Accept: 'application/json',
@@ -71,8 +83,9 @@ export async function requestEnka(uid) {
           'User-Agent': 'GsPanel/0.2'
         },
         follow: 1,
-        timeout: 20000
+        signal: controller.signal
       })
+      clearTimeout(timer)
 
       const errorMsg = {
         400: `玩家 ${uid} UID 格式错误！`,

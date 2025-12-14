@@ -98,7 +98,18 @@ export class TeyvatRanking extends plugin {
       jsonRes = this.parseResponse(response.data)
     } catch (error) {
       logger.error('[成就排行] 接口请求失败！', error)
-      e.reply(`成就排行接口请求失败~`)
+
+      // 回退：群内缓存数据（不依赖外部接口）
+      const cached = e.isGroup ? this.getCachedRecord(achieveTopPath, e.group_id, uid) : null
+      if (cached) {
+        e.reply('成就排行接口请求失败，已使用本群缓存数据', true)
+        const json = { data: [cached] }
+        const { name, signature } = await this.getPlayerInfo(uid)
+        await this.renderAchieve(e, uid, name, signature || cached.nickname || '未设置签名', json)
+        return true
+      }
+
+      e.reply('成就排行接口请求失败，且无可用缓存数据', true)
       return true
     }
 
@@ -151,7 +162,18 @@ export class TeyvatRanking extends plugin {
       jsonRes = this.parseResponse(response.data)
     } catch (error) {
       logger.error('[宝箱排行] 接口请求失败！', error)
-      e.reply(`宝箱排行接口请求失败~`)
+
+      // 回退：群内缓存数据（不依赖外部接口）
+      const cached = e.isGroup ? this.getCachedRecord(chestTopPath, e.group_id, uid) : null
+      if (cached) {
+        e.reply('宝箱排行接口请求失败，已使用本群缓存数据', true)
+        const json = { data: [cached] }
+        const { name, signature } = await this.getPlayerInfo(uid)
+        await this.renderChest(e, uid, name, signature || cached.nickname || '未设置签名', json)
+        return true
+      }
+
+      e.reply('宝箱排行接口请求失败，且无可用缓存数据', true)
       return true
     }
 
@@ -355,6 +377,26 @@ export class TeyvatRanking extends plugin {
       str = str.substring(1, str.length - 1)
     }
     return JSON.parse(str)
+  }
+
+  getCachedRecord(filePath, groupId, uid) {
+    try {
+      if (!groupId || !fs.existsSync(filePath)) return null
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+      const group = data?.[groupId]
+      if (!group) return null
+
+      const uidStr = String(uid)
+      for (const [qq, value] of Object.entries(group)) {
+        if (String(value?.uid) === uidStr) {
+          return { qq, ...value }
+        }
+      }
+      return null
+    } catch (e) {
+      logger.warn(`[提瓦特排行] 读取缓存失败: ${e.message}`)
+      return null
+    }
   }
 
   /**
