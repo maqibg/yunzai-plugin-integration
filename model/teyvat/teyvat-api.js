@@ -122,10 +122,29 @@ export async function requestEnka(uid) {
 /**
  * 获取服务器标识
  * @param {String} uid UID
- * @param {Boolean} forApi 是否用于 API 请求
+ * @param {Boolean} forTeyvat 是否用于提瓦特小助手 API（使用简短标识）
  * @returns {String} 服务器标识
  */
-export function getServer(uid, forApi = false) {
+export function getServer(uid, forTeyvat = false) {
+  const firstDigit = uid[0]
+
+  // 提瓦特小助手 API 使用简短标识
+  if (forTeyvat) {
+    const teyvatServerMap = {
+      5: 'cn_qd01',  // B服
+      6: 'us',       // 美服
+      7: 'eur',      // 欧服
+      8: 'asia',     // 亚服
+      9: 'hk'        // 港澳台服
+    }
+    // 国服(1/2开头)不需要传 server
+    if (['1', '2'].includes(firstDigit)) {
+      return undefined
+    }
+    return teyvatServerMap[firstDigit] || undefined
+  }
+
+  // 其他用途使用完整标识
   const serverMap = {
     1: 'cn_gf01',   // 官服
     2: 'cn_gf01',   // 官服
@@ -134,11 +153,6 @@ export function getServer(uid, forApi = false) {
     7: 'os_euro',   // 欧服
     8: 'os_asia',   // 亚服
     9: 'os_cht'     // 港澳台服
-  }
-
-  const firstDigit = uid[0]
-  if (forApi && ['1', '2'].includes(firstDigit)) {
-    return undefined // 国服不需要传 server
   }
   return serverMap[firstDigit] || 'cn_gf01'
 }
