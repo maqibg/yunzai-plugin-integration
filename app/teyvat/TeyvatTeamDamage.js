@@ -349,7 +349,15 @@ export class TeyvatTeamDamage extends plugin {
     const at = e.at
     if (!at) return null
 
-    // 尝试从 Redis 获取
+    // 优先使用 Yunzai runtime API（与原项目一致）
+    try {
+      const mys = await e.runtime?.getMysInfo?.('all')
+      if (mys?.uid) {
+        return mys.uid
+      }
+    } catch { }
+
+    // 回退：从 Redis 获取
     let uid = await redis.get(`genshin:id-uid:${at}`)
     if (!uid) {
       uid = await redis.get(`Yz:genshin:mys:qq-uid:${at}`)
