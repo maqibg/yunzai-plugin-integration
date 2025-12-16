@@ -8,8 +8,12 @@ import plugin from '../../../../lib/plugins/plugin.js'
 import puppeteer from '../../../../lib/puppeteer/puppeteer.js'
 import _ from 'lodash'
 import fetch from 'node-fetch'
+import https from 'node:https'
 import fs from 'node:fs'
 import path from 'node:path'
+
+// 用于跳过 SSL 证书验证的 Agent（CDN 证书过期时使用）
+const insecureAgent = new https.Agent({ rejectUnauthorized: false })
 import { Format } from '../../../miao-plugin/components/index.js'
 import { Character, Player } from '../../../miao-plugin/models/index.js'
 import teyvatSetting from '../../model/teyvat/teyvat-setting.js'
@@ -307,7 +311,8 @@ export class TeyvatTeamDamage extends plugin {
 
       for (const [key, url] of Object.entries(urls)) {
         try {
-          const res = await fetch(url)
+          // 使用 insecureAgent 跳过 SSL 验证（CDN 证书过期时使用）
+          const res = await fetch(url, { agent: insecureAgent })
           if (res.ok) {
             data[key] = await res.json()
             logger.info(`[提瓦特小助手] 已更新 ${key}`)
