@@ -8,6 +8,11 @@ import api from '../../model/bilibili/bilibili-api.js'
 import { URL_PATTERNS, REDIS_PREFIX } from '../../model/bilibili/bilibili-const.js'
 import moment from 'moment'
 
+const PARSE_RETRY_TIMES = 3
+const PARSE_RETRY_DELAY_MS = 800
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
 export class BilibiliParser extends plugin {
   constructor() {
     super({
@@ -128,10 +133,44 @@ export class BilibiliParser extends plugin {
     // 根据类型分发
     if (result.type === 'video') {
       e.bilibiliData = { bvid: result.id }
-      return this.handleVideo(e, result.id)
+      return this.retryParseAction('视频解析', ({ notifyError }) =>
+        this.handleVideo(e, result.id, { notifyError })
+      )
     } else if (result.type === 'dynamic') {
       e.bilibiliData = { dynamicId: result.id }
-      return this.handleDynamic(e, result.id)
+      return this.retryParseAction('动态解析', ({ notifyError }) =>
+        this.handleDynamic(e, result.id, { notifyError })
+      )
+    }
+
+    return false
+  }
+
+  async retryParseAction(actionName, action) {
+    let lastError = null
+
+    for (let attempt = 1; attempt <= PARSE_RETRY_TIMES; attempt++) {
+      const notifyError = attempt === PARSE_RETRY_TIMES
+
+      try {
+        const handled = await action({ notifyError, attempt })
+        if (handled) {
+          return true
+        }
+
+        logger.warn(`[Bilibili] ${actionName}失败，第 ${attempt}/${PARSE_RETRY_TIMES} 次尝试未成功`)
+      } catch (error) {
+        lastError = error
+        logger.warn(`[Bilibili] ${actionName}异常，第 ${attempt}/${PARSE_RETRY_TIMES} 次尝试失败: ${error.message}`)
+      }
+
+      if (!notifyError) {
+        await wait(PARSE_RETRY_DELAY_MS)
+      }
+    }
+
+    if (lastError) {
+      logger.error(`[Bilibili] ${actionName}最终失败: ${lastError.message}`)
     }
 
     return false
@@ -186,10 +225,15 @@ export class BilibiliParser extends plugin {
   /**
    * 处理视频
    */
-  async handleVideo(e, bvid) {
+  async handleVideo(e, bvid, options = {}) {
+    const { notifyError = true } = options
+
     // 获取视频信息
     const videoInfo = await api.getVideoInfo(bvid)
     if (!videoInfo) {
+      if (notifyError) {
+        await e.reply('获取视频信息失败')
+      }
       return false
     }
 
@@ -242,7 +286,7 @@ export class BilibiliParser extends plugin {
     }
 
     // 单P视频，直接处理
-    return this.processVideo(e, bvid, 0, videoInfo)
+    return this.processVideo(e, bvid, 0, videoInfo, { notifyError })
   }
 
   /**
@@ -283,14 +327,19 @@ export class BilibiliParser extends plugin {
   /**
    * 处理视频（调用BilibiliVideo）
    */
-  async processVideo(e, bvid, pageIndex, videoInfo = null) {
+  async processVideo(e, bvid, pageIndex, videoInfo = null, options = {}) {
+    const { notifyError = true } = options
+
     try {
       // 动态导入视频处理模块
       const { BilibiliVideo } = await import('./BilibiliVideo.js')
       const videoHandler = new BilibiliVideo()
-      return await videoHandler.processVideo(e, bvid, pageIndex, videoInfo)
+      return await videoHandler.processVideo(e, bvid, pageIndex, videoInfo, { notifyError })
     } catch (error) {
       logger.error(`[Bilibili] 处理视频失败: ${error.message}`)
+      if (notifyError) {
+        await e.reply('B站视频解析失败，请稍后重试')
+      }
       return false
     }
   }
@@ -298,13 +347,18 @@ export class BilibiliParser extends plugin {
   /**
    * 处理动态
    */
-  async handleDynamic(e, dynamicId) {
+  async handleDynamic(e, dynamicId, options = {}) {
+    const { notifyError = true } = options
+
     try {
       const { BilibiliDynamic } = await import('./BilibiliDynamic.js')
       const dynamicHandler = new BilibiliDynamic()
-      return await dynamicHandler.processDynamic(e, dynamicId)
+      return await dynamicHandler.processDynamic(e, dynamicId, { notifyError })
     } catch (error) {
       logger.error(`[Bilibili] 处理动态失败: ${error.message}`)
+      if (notifyError) {
+        await e.reply('B站动态解析失败，请稍后重试')
+      }
       return false
     }
   }

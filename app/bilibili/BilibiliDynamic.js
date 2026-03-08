@@ -24,20 +24,25 @@ export class BilibiliDynamic extends plugin {
   /**
    * 处理动态
    */
-  async processDynamic(e, dynamicId) {
+  async processDynamic(e, dynamicId, options = {}) {
+    const { notifyError = true } = options
     const config = setting.getConfig()
     if (!config.dynamic?.enable) return false
 
     const headers = await buildHeaders()
     if (!headers) {
-      e.reply('获取认证信息失败')
+      if (notifyError) {
+        await e.reply('获取认证信息失败')
+      }
       return false
     }
 
     // 获取动态详情
     const dynamicData = await this.getDynamicDetail(dynamicId, headers)
     if (!dynamicData) {
-      e.reply('获取动态信息失败')
+      if (notifyError) {
+        await e.reply('获取动态信息失败')
+      }
       return false
     }
 
@@ -45,7 +50,7 @@ export class BilibiliDynamic extends plugin {
     if (dynamicData.type === 'video') {
       const { BilibiliVideo } = await import('./BilibiliVideo.js')
       const videoHandler = new BilibiliVideo()
-      return await videoHandler.processVideo(e, dynamicData.bvid, 0)
+      return await videoHandler.processVideo(e, dynamicData.bvid, 0, null, { notifyError })
     }
 
     // 发送动态信息并保存数据

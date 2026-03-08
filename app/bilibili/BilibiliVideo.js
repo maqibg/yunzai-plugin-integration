@@ -42,14 +42,17 @@ export class BilibiliVideo extends plugin {
   /**
    * 处理视频（核心方法）
    */
-  async processVideo(e, bvid, pageIndex = 0, videoInfo = null) {
+  async processVideo(e, bvid, pageIndex = 0, videoInfo = null, options = {}) {
+    const { notifyError = true } = options
     const config = setting.getConfig()
 
     // 获取视频信息
     if (!videoInfo) {
       videoInfo = await api.getVideoInfo(bvid)
       if (!videoInfo) {
-        e.reply('获取视频信息失败')
+        if (notifyError) {
+          await e.reply('获取视频信息失败')
+        }
         return false
       }
     }
