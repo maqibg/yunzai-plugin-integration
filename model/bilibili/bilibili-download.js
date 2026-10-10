@@ -97,6 +97,7 @@ async function smartQualitySelection(bvid, cid, headers) {
   // 获取播放地址并检查大小
   const playData = await api.getPlayUrl(bvid, cid, targetQn)
   if (!playData?.dash) {
+    logger.error(`[Bilibili] 智能画质获取播放地址失败: bvid=${bvid}, cid=${cid}, qn=${targetQn}, video=${playData?.dash?.video?.length || 0}, audio=${playData?.dash?.audio?.length || 0}`)
     return { qn: targetQn, reason: null }
   }
 
@@ -117,15 +118,19 @@ async function smartQualitySelection(bvid, cid, headers) {
     actualQn = videoStream?.id || 16
   }
 
-  // 获取音频流
+  // 获取音频流（部分稿件为无声视频，B站不返回任何音频流）
   const audioStream = playData.dash.audio?.[0]
-  if (!videoStream || !audioStream) {
+  if (!videoStream) {
+    logger.error(`[Bilibili] 未获取到视频流: bvid=${bvid}, cid=${cid}, qn=${targetQn}, video=${playData.dash.video?.length || 0}`)
     return { qn: actualQn, reason: null }
   }
+  if (!audioStream) {
+    logger.mark(`[Bilibili] 稿件 ${bvid} 无音频流（无声视频），将仅下载视频轨`)
+  }
 
-  // 计算总大小
+  // 计算总大小（无音频时只计视频轨）
   const videoSize = await getStreamSize(videoStream.baseUrl, headers)
-  const audioSize = await getStreamSize(audioStream.baseUrl, headers)
+  const audioSize = audioStream ? await getStreamSize(audioStream.baseUrl, headers) : 0
   const totalSize = videoSize + audioSize
 
   logger.mark(`[Bilibili] 当前画质: ${getQualityName(actualQn)}, 预估大小: ${formatSize(totalSize)}`)
@@ -136,7 +141,7 @@ async function smartQualitySelection(bvid, cid, headers) {
       qn: actualQn,
       size: totalSize,
       videoUrl: videoStream.baseUrl,
-      audioUrl: audioStream.baseUrl,
+      audioUrl: audioStream?.baseUrl || null,
       reason: null
     }
   }
@@ -155,10 +160,10 @@ async function smartQualitySelection(bvid, cid, headers) {
       lowerPlayData.dash.video[0]
     const lowerAudio = lowerPlayData.dash.audio?.[0]
 
-    if (!lowerVideo || !lowerAudio) continue
+    if (!lowerVideo) continue
 
     const lowerVideoSize = await getStreamSize(lowerVideo.baseUrl, headers)
-    const lowerAudioSize = await getStreamSize(lowerAudio.baseUrl, headers)
+    const lowerAudioSize = lowerAudio ? await getStreamSize(lowerAudio.baseUrl, headers) : 0
     const lowerTotal = lowerVideoSize + lowerAudioSize
 
     logger.mark(`[Bilibili] 尝试画质: ${getQualityName(lowerVideo.id)}, 预估大小: ${formatSize(lowerTotal)}`)
@@ -169,7 +174,7 @@ async function smartQualitySelection(bvid, cid, headers) {
         qn: lowerVideo.id,
         size: lowerTotal,
         videoUrl: lowerVideo.baseUrl,
-        audioUrl: lowerAudio.baseUrl,
+        audioUrl: lowerAudio?.baseUrl || null,
         reason: `智能降级: ${getQualityName(originalQn)} → ${getQualityName(lowerVideo.id)}`,
         originalQn
       }
@@ -181,7 +186,7 @@ async function smartQualitySelection(bvid, cid, headers) {
     qn: actualQn,
     size: totalSize,
     videoUrl: videoStream.baseUrl,
-    audioUrl: audioStream.baseUrl,
+    audioUrl: audioStream?.baseUrl || null,
     reason: null
   }
 }
@@ -197,32 +202,40 @@ async function downloadAndMerge(videoUrl, audioUrl, outputPath, headers) {
 
   const videoPath = path.join(tempDir, 'video.m4s')
   const audioPath = path.join(tempDir, 'audio.m4s')
+  // 无声稿件没有音频流，仅封装视频轨
+  const hasAudio = !!audioUrl
 
   // 使用项目内的 ffmpeg
   const ffmpegPath = path.join(pluginRoot, 'model', 'ffmpeg', 'ffmpeg')
 
   try {
-    logger.mark('[Bilibili] 开始下载视频和音频...')
+    logger.mark(`[Bilibili] 开始下载${hasAudio ? '视频和音频' : '视频（该稿件无音轨）'}...`)
 
     // 下载视频
     await downloadStream(videoUrl, videoPath, headers)
     logger.mark('[Bilibili] 视频下载完成')
 
     // 下载音频
-    await downloadStream(audioUrl, audioPath, headers)
-    logger.mark('[Bilibili] 音频下载完成')
+    if (hasAudio) {
+      await downloadStream(audioUrl, audioPath, headers)
+      logger.mark('[Bilibili] 音频下载完成')
+    } else {
+      logger.mark('[Bilibili] 该稿件无音频轨，跳过音频下载')
+    }
 
     // FFmpeg合并
-    logger.mark('[Bilibili] 开始合并音视频...')
+    logger.mark('[Bilibili] 开始合并...')
 
-    const ffmpegCmd = `"${ffmpegPath}" -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a copy -f mp4 -y -loglevel error "${outputPath}"`
+    const ffmpegCmd = hasAudio
+      ? `"${ffmpegPath}" -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a copy -f mp4 -y -loglevel error "${outputPath}"`
+      : `"${ffmpegPath}" -i "${videoPath}" -c:v copy -f mp4 -y -loglevel error "${outputPath}"`
 
     execSync(ffmpegCmd, {
       cwd: tempDir,
       timeout: 300000 // 5分钟超时
     })
 
-    logger.mark('[Bilibili] 音视频合并完成')
+    logger.mark('[Bilibili] 合并完成')
 
     // 清理临时文件
     if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
@@ -298,20 +311,25 @@ class BilibiliDownloader {
     // 已登录：使用 DASH 高画质下载
     // 智能画质选择
     const qualityResult = await smartQualitySelection(bvid, cid, headers)
-    if (!qualityResult.videoUrl || !qualityResult.audioUrl) {
+    if (!qualityResult.videoUrl) {
       // 需要重新获取播放地址
       const playData = await api.getPlayUrl(bvid, cid, qualityResult.qn)
-      if (!playData?.dash?.video?.length || !playData?.dash?.audio?.length) {
+      // 只要有视频流即可下载；audio 为空只代表稿件本身无声，不视为失败
+      if (!playData?.dash?.video?.length) {
+        logger.error(`[Bilibili] 获取视频下载地址失败: bvid=${bvid}, cid=${cid}, qn=${qualityResult.qn}, dash=${!!playData?.dash}, video=${playData?.dash?.video?.length || 0}, audio=${playData?.dash?.audio?.length || 0}`)
         if (sendMessage) e.reply('获取视频下载地址失败')
         return null
       }
 
       qualityResult.videoUrl = playData.dash.video[0].baseUrl
-      qualityResult.audioUrl = playData.dash.audio[0].baseUrl
+      qualityResult.audioUrl = playData.dash.audio?.[0]?.baseUrl || null
+      if (!qualityResult.audioUrl) {
+        logger.mark(`[Bilibili] 稿件 ${bvid} 无音频流（无声视频），仅下载视频轨`)
+      }
 
-      // 重新计算大小
+      // 重新计算大小（无音频时只计视频轨）
       const vSize = await getStreamSize(qualityResult.videoUrl, headers)
-      const aSize = await getStreamSize(qualityResult.audioUrl, headers)
+      const aSize = qualityResult.audioUrl ? await getStreamSize(qualityResult.audioUrl, headers) : 0
       qualityResult.size = vSize + aSize
     }
 
