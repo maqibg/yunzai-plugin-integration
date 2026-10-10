@@ -96,8 +96,8 @@ async function smartQualitySelection(bvid, cid, headers) {
 
   // 获取播放地址并检查大小
   const playData = await api.getPlayUrl(bvid, cid, targetQn)
-  if (!playData?.dash) {
-    logger.error(`[Bilibili] 智能画质获取播放地址失败: bvid=${bvid}, cid=${cid}, qn=${targetQn}, video=${playData?.dash?.video?.length || 0}, audio=${playData?.dash?.audio?.length || 0}`)
+  if (!playData?.dash?.video?.length) {
+    logger.error(`[Bilibili] 智能画质获取播放地址失败: bvid=${bvid}, cid=${cid}, qn=${targetQn}, dash=${!!playData?.dash}, video=${playData?.dash?.video?.length || 0}, audio=${playData?.dash?.audio?.length || 0}`)
     return { qn: targetQn, reason: null }
   }
 
