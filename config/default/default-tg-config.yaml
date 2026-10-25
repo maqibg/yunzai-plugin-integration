@@ -74,3 +74,14 @@ channels:
     target:
       type: group            # 目标类型: group(群聊) 或 user(私聊)
       id: 123456789          # QQ群号或QQ号
+
+# [文本] 合并转发时单条文本的最大长度，超长自动切分（优先按换行，其次句号）
+message:
+  text_chunk_max: 3000
+
+# [拉取] getUpdates 单次最多返回 100 条；积压多时自动多拉几轮（每轮一次请求）
+drain:
+  max_rounds: 5
+
+# [转发] 合并转发节点显示的昵称
+nickname: "TG频道"

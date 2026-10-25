@@ -51,6 +51,25 @@ function filterContent(text, config) {
   return out
 }
 
+// 合并转发的单条文本过长会被截断或发送失败，按长度切开：优先换行，其次句号，最后硬切
+const TEXT_CHUNK_MAX = 3000
+function splitText(text, size = TEXT_CHUNK_MAX) {
+  const s = String(text ?? '')
+  if (!s) return []
+  const chunks = []
+  let rest = s
+  while (rest.length > size) {
+    let cut = rest.lastIndexOf('\n', size)
+    if (cut < size * 0.5) cut = rest.lastIndexOf('。', size)
+    if (cut < size * 0.5) cut = size
+    const piece = rest.slice(0, cut).trimEnd()
+    if (piece) chunks.push(piece)
+    rest = rest.slice(cut).trimStart()
+  }
+  if (rest) chunks.push(rest)
+  return chunks
+}
+
 // 工具：将 Bot API 返回的 file_path 映射为宿主机持久化路径
 // 规则：
 // - 若 file_path 以 /var/lib/telegram-bot-api/ 开头，则去掉该前缀，直接拼接到挂载根目录
@@ -171,8 +190,11 @@ async function buildNodeFromChannelPost(token, proxy, baseDir, post, agents, max
 
   // 文本（text 或 caption）- 应用过滤器
   const text = post.text || post.caption
-  if (text) node.push(filterContent(text, cfg))
-
+  if (text) {
+    // 单条文本过长会让合并转发失败或被截断，先按长度切开
+    const chunkMax = Number(cfg?.message?.text_chunk_max || TEXT_CHUNK_MAX)
+    for (const part of splitText(filterContent(text, cfg), chunkMax)) node.push(part)
+  }
   // 图片：从同一张不同规格中，选择不超过上限的最大一张
   if (Array.isArray(post.photo) && post.photo.length) {
     let best = null
@@ -301,7 +323,7 @@ async function handleAudio(token, proxy, baseDir, post, agents, maxBytes, cfg) {
 }
 
 // 组装并发送合并转发到目标；目标 target: { type: 'group'|'user', id: number }
-async function sendForwardToTarget(eCtx, target, list) {
+async function sendForwardToTarget(eCtx, target, list, nickname = '') {
   try {
     // 验证转发内容
     if (!list || list.length === 0) {
@@ -324,8 +346,8 @@ async function sendForwardToTarget(eCtx, target, list) {
     // 添加实际消息节点
     for (let item of validList) {
       forwardNodes.push({
-        nickname: '瘤萎',
-        user_id: String(80000000),  // 使用固定虚拟ID，字符串格式
+        nickname: nickname || 'TG频道',
+        user_id: String(80000000),  // 合并转发节点的虚拟ID，保持字符串
         message: item,              // 保持数组格式
         time: Date.now()
       })
@@ -433,17 +455,30 @@ async function pullTelegramMessages(e) {
     const state = loadState()
     const offset = state.last_update_id ? state.last_update_id + 1 : undefined
 
-    // 拉取更新（短轮询，快速获取）
-    const { data: updatesData } = await telegramAPI.executeRequest(token, async (controller) => {
-      return await botApiGet('getUpdates', {
-        timeout: 5, // 短轮询，5秒超时
-        offset,
-        // 支持群组(supergroup/group)与频道(channel)消息
-        allowed_updates: ['message', 'channel_post']
-      }, cfg, proxy, token, controller.signal, 15000)
-    })
+    // 拉取更新（短轮询）。getUpdates 单次最多返回 100 条，
+    // 积压多时要连续拉几轮，避免主人得反复发 #tg
+    const updates = []
+    const maxRounds = Number(cfg?.drain?.max_rounds || 5)
+    let nextOffset = offset
+    for (let round = 0; round < maxRounds; round++) {
+      const { data: updatesData } = await telegramAPI.executeRequest(token, async (controller) => {
+        return await botApiGet('getUpdates', {
+          timeout: 5, // 短轮询，5秒超时
+          offset: nextOffset,
+          limit: 100,
+          // 支持群组(supergroup/group)与频道(channel)消息
+          allowed_updates: ['message', 'channel_post']
+        }, cfg, proxy, token, controller.signal, 15000)
+      })
 
-    const updates = Array.isArray(updatesData?.result) ? updatesData.result : []
+      const batchUpdates = Array.isArray(updatesData?.result) ? updatesData.result : []
+      if (!batchUpdates.length) break
+      updates.push(...batchUpdates)
+
+      logger.info(`[TG] 第 ${round + 1} 轮拉取到 ${batchUpdates.length} 条`)
+      if (batchUpdates.length < 100) break
+      nextOffset = Number(batchUpdates[batchUpdates.length - 1].update_id) + 1
+    }
     
     if (updates.length === 0) {
       await e.reply('TG 无新消息')
@@ -455,7 +490,7 @@ async function pullTelegramMessages(e) {
 
     // 处理消息
     const listByTarget = new Map()
-    const groupByTarget = new Map()
+    const groupRefs = new Map()   // 相册聚合：同一个 media_group 共用一个时间位
 
     const chanArray = Array.isArray(channels) ? channels : []
     const matchers = chanArray.map(c => ({
@@ -475,7 +510,17 @@ async function pullTelegramMessages(e) {
       if (nowTs - processed[k] > ttlMs) delete processed[k]
     }
 
-    for (const upd of updates) {
+    // 按消息时间升序处理，保证转发顺序与频道里看到的一致
+    const ordered = updates.slice().sort((a, b) => {
+      const pa = a.channel_post || a.message
+      const pb = b.channel_post || b.message
+      const da = Number(pa?.date || 0)
+      const db = Number(pb?.date || 0)
+      if (da !== db) return da - db
+      return Number(a.update_id || 0) - Number(b.update_id || 0)
+    })
+
+    for (const upd of ordered) {
       maxUpdateId = Math.max(maxUpdateId, Number(upd.update_id || 0))
       const post = upd.channel_post || upd.message
       if (!post || !post.chat) continue
@@ -517,43 +562,33 @@ async function pullTelegramMessages(e) {
         // 处理音频内容
         const { node: audioNode, files: audioFiles } = await handleAudio(token, proxy, baseDir, post, agents, maxBytes, cfg)
         
-        if (post.media_group_id) {
-          if (!groupByTarget.has(tKey)) groupByTarget.set(tKey, new Map())
-          const groups = groupByTarget.get(tKey)
-          const gKey = `g:${post.media_group_id}`
-          if (!groups.has(gKey)) groups.set(gKey, { node: [], files: [], hasText: false })
-          const group = groups.get(gKey)
-          
-          const allNodes = [...mainNode, ...audioNode]
-          const allFiles = [...mainFiles, ...audioFiles]
-          
-          if (allNodes.length === 0 && allFiles.length === 0) {
-            processed[dedupKey] = nowTs
-            continue
-          }
-          
-          for (const part of allNodes) {
-            if (typeof part === 'string') {
-              if (!group.hasText) { group.node.push(part); group.hasText = true }
-            } else {
-              group.node.push(part)
-            }
-          }
-          group.files.push(...allFiles)
+        const bucket = listByTarget.get(tKey)
+        const allNodes = [...mainNode, ...audioNode]
+        const allFiles = [...mainFiles, ...audioFiles]
+
+        if (allNodes.length === 0 && allFiles.length === 0) {
           processed[dedupKey] = nowTs
-        } else {
-          const allNodes = [...mainNode, ...audioNode]
-          const allFiles = [...mainFiles, ...audioFiles]
-          
-          if (!allNodes.length && allFiles.length === 0) {
-            processed[dedupKey] = nowTs
-            continue
+          continue
+        }
+
+        if (post.media_group_id) {
+          // 相册：同一 media_group 的消息并到一个时间点，首次出现即占位，避免被排到最后
+          if (!groupRefs.has(tKey)) groupRefs.set(tKey, new Map())
+          const refs = groupRefs.get(tKey)
+          const gKey = `g:${post.media_group_id}`
+          let arr = refs.get(gKey)
+          if (!arr) {
+            arr = []
+            refs.set(gKey, arr)
+            bucket.list.push(arr)
           }
-          const bucket = listByTarget.get(tKey)
+          for (const part of allNodes) arr.push(part)
+          bucket.files.push(...allFiles)
+        } else {
           bucket.list.push(allNodes)
           bucket.files.push(...allFiles)
-          processed[dedupKey] = nowTs
         }
+        processed[dedupKey] = nowTs
       } catch (err) {
         const msg = err?.response?.data?.description || err?.message || '未知错误'
         logger.error(`[TG] 处理消息失败: ${msg}`)
@@ -564,18 +599,11 @@ async function pullTelegramMessages(e) {
     let totalSent = 0
     for (const [tKey, item] of listByTarget) {
       let hadError = false
-      if (groupByTarget.has(tKey)) {
-        const groups = groupByTarget.get(tKey)
-        for (const g of groups.values()) {
-          if (g.node.length) item.list.push(g.node)
-          if (g.files.length) item.files.push(...g.files)
-        }
-      }
       const size = Number((batch && batch.size) || 8)
       for (let i = 0; i < item.list.length; i += size) {
         const chunk = item.list.slice(i, i + size)
         try {
-          await sendForwardToTarget(item.eCtx, item.target, chunk)
+await sendForwardToTarget(item.eCtx, item.target, chunk, cfg?.nickname)
           totalSent += chunk.length
         } catch (err) {
           const msg = err?.response?.data?.description || err?.message || '未知错误'
