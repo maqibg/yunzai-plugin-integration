@@ -4,10 +4,9 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import fetch from 'node-fetch'
 import moment from 'moment'
 import setting from '../../model/bilibili/bilibili-setting.js'
-import api, { buildHeaders } from '../../model/bilibili/bilibili-api.js'
+import api, { buildHeaders, fetchBili, explainBiliCode } from '../../model/bilibili/bilibili-api.js'
 import { API_ENDPOINTS, REPLY_TYPE } from '../../model/bilibili/bilibili-const.js'
 
 export class BilibiliDynamic extends plugin {
@@ -91,7 +90,7 @@ export class BilibiliDynamic extends plugin {
     try {
       // 尝试新接口
       let url = `${API_ENDPOINTS.DYNAMIC_DETAIL}?id=${dynamicId}&timezone_offset=-480`
-      let res = await fetch(url, { headers })
+      let res = await fetchBili(url, { headers })
       let json = await res.json()
 
       if (json.data?.item) {
@@ -100,13 +99,15 @@ export class BilibiliDynamic extends plugin {
 
       // 尝试旧接口
       url = `${API_ENDPOINTS.DYNAMIC_DETAIL_OLD}?dynamic_id=${dynamicId}`
-      res = await fetch(url, { headers })
+      res = await fetchBili(url, { headers })
       json = await res.json()
 
       if (json.data?.card) {
         return this.parseOldDynamic(json.data.card)
       }
 
+      // 两个接口都没给数据时，把返回码留在日志里，方便判断是风控还是动态已删除
+      logger.warn(`[Bilibili] 获取动态详情无数据: ${explainBiliCode(json.code, json.message)}`)
       return null
     } catch (error) {
       logger.error(`[Bilibili] 获取动态详情失败: ${error.message}`)
@@ -259,11 +260,17 @@ export class BilibiliDynamic extends plugin {
       const limit = config.dynamic?.imageLimit || 5
       const images = data.images.slice(0, limit)
 
-      for (const img of images) {
-        try {
-          await e.reply(segment.image(img))
-        } catch (err) {
-          logger.warn(`[Bilibili] 发送图片失败: ${err.message}`)
+      // 一次带上全部图片：既保证顺序，也少发几条消息，降低被风控的概率
+      try {
+        await e.reply(images.map(img => segment.image(img)))
+      } catch (err) {
+        logger.warn(`[Bilibili] 批量发送图片失败，改为逐张发送: ${err.message}`)
+        for (const img of images) {
+          try {
+            await e.reply(segment.image(img))
+          } catch (inner) {
+            logger.warn(`[Bilibili] 发送图片失败: ${inner.message}`)
+          }
         }
       }
 

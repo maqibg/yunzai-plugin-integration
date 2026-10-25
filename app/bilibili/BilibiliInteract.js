@@ -2,9 +2,8 @@
  * Bilibili 互动操作模块
  * 负责点赞、投币、收藏、关注等操作
  */
-import fetch from 'node-fetch'
 import setting from '../../model/bilibili/bilibili-setting.js'
-import api, { buildHeaders } from '../../model/bilibili/bilibili-api.js'
+import api, { buildHeaders, fetchBili, explainBiliCode } from '../../model/bilibili/bilibili-api.js'
 import { API_ENDPOINTS } from '../../model/bilibili/bilibili-const.js'
 
 export class BilibiliInteract extends plugin {
@@ -105,7 +104,10 @@ export class BilibiliInteract extends plugin {
         source = await e.getReply()
       }
 
-      if (!source) return null
+      if (!source) {
+        await e.reply('请先引用一条已解析的B站视频再使用这个指令')
+        return null
+      }
 
       const msgId = source.message_id?.toString().replace(/\//g, '')
       const fs = await import('node:fs')
@@ -115,10 +117,66 @@ export class BilibiliInteract extends plugin {
         return JSON.parse(fs.readFileSync(dataPath, 'utf-8'))
       }
 
+      await e.reply('这条消息没有B站视频数据，请先发送视频链接解析后再引用它')
       return null
-    } catch {
+    } catch (error) {
+      logger.error(`[Bilibili] 读取引用视频数据失败: ${error.message}`)
+      await e.reply('读取引用消息失败，请重新引用视频后再试')
       return null
     }
+  }
+
+  /**
+   * 统一的互动请求：认证 → 发请求 → 按返回码回复
+   * 11 个指令原本各抄一遍同样的三十来行，这里收拢到一处
+   * @param {object} e 消息事件
+   * @param {object} opts url(csrf) 目标地址、action 动作名、success 成功提示、known 已知返回码提示
+   */
+  async doAction(e, { url, action, success, known = [] }) {
+    const headers = await buildHeaders(null, true)
+    if (!headers) {
+      await e.reply('请先执行 #b站登录')
+      return true
+    }
+
+    const csrf = await this.getCsrf()
+    if (!csrf) {
+      await e.reply('获取认证信息失败，请重新执行 #b站登录')
+      return true
+    }
+
+    try {
+      headers.Accept = 'application/x-www-form-urlencoded'
+      const res = await fetchBili(url(csrf), { method: 'POST', headers })
+      const json = await res.json()
+
+      if (json.code === 0) {
+        await e.reply(`[Bilibili] ${success}`)
+        return true
+      }
+
+      const knownText = known.find(([code]) => code === json.code)?.[1]
+      await e.reply(knownText
+        ? `[Bilibili] ${knownText}`
+        : `[Bilibili] ${action}失败: ${explainBiliCode(json.code, json.message)}`)
+    } catch (error) {
+      await e.reply(`[Bilibili] ${action}异常: ${error.message}`)
+    }
+
+    return true
+  }
+
+  /**
+   * 取引用视频的作者 mid，缺失时给出可操作的提示
+   */
+  async getUpMid(e) {
+    const videoData = await this.getVideoFromReply(e)
+    if (!videoData) return null
+    if (!videoData.upMid) {
+      await e.reply('这条视频数据里没有UP主信息，可能解析已过期，请重新发送视频链接')
+      return null
+    }
+    return videoData.upMid
   }
 
   /**
@@ -130,36 +188,12 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
-
-    const csrf = await this.getCsrf()
-    if (!csrf) {
-      e.reply('获取认证信息失败')
-      return true
-    }
-
-    try {
-      const url = `${API_ENDPOINTS.VIDEO_LIKE}?csrf=${csrf}&bvid=${videoData.bvid}&like=1`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 点赞成功！')
-      } else if (json.code === 65006) {
-        e.reply('[Bilibili] 已经点过赞了')
-      } else {
-        e.reply(`[Bilibili] 点赞失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 点赞异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '点赞',
+      success: '点赞成功！',
+      known: [[65006, '已经点过赞了']],
+      url: csrf => `${API_ENDPOINTS.VIDEO_LIKE}?csrf=${csrf}&bvid=${videoData.bvid}&like=1`
+    })
   }
 
   /**
@@ -171,33 +205,12 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const url = `${API_ENDPOINTS.VIDEO_LIKE}?csrf=${csrf}&bvid=${videoData.bvid}&like=2`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 取消点赞成功')
-      } else if (json.code === 65004) {
-        e.reply('[Bilibili] 还没点过赞呢')
-      } else {
-        e.reply(`[Bilibili] 取消点赞失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 取消点赞异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '取消点赞',
+      success: '取消点赞成功',
+      known: [[65004, '还没点过赞呢']],
+      url: csrf => `${API_ENDPOINTS.VIDEO_LIKE}?csrf=${csrf}&bvid=${videoData.bvid}&like=2`
+    })
   }
 
   /**
@@ -212,35 +225,12 @@ export class BilibiliInteract extends plugin {
     const match = e.msg.match(/^#?投币(\d*)$/)
     const coinNum = Math.min(parseInt(match?.[1]) || 2, 2)
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const url = `${API_ENDPOINTS.VIDEO_COIN}?bvid=${videoData.bvid}&multiply=${coinNum}&select_like=1&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply(`[Bilibili] 投币 ${coinNum} 个成功！`)
-      } else if (json.code === -104) {
-        e.reply('[Bilibili] 硬币不够了')
-      } else if (json.code === 34005) {
-        e.reply('[Bilibili] 已经投过币了')
-      } else {
-        e.reply(`[Bilibili] 投币失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 投币异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '投币',
+      success: `投币 ${coinNum} 个成功！`,
+      known: [[-104, '硬币不够了'], [34005, '已经投过币了']],
+      url: csrf => `${API_ENDPOINTS.VIDEO_COIN}?bvid=${videoData.bvid}&multiply=${coinNum}&select_like=1&csrf=${csrf}`
+    })
   }
 
   /**
@@ -252,45 +242,23 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
+    const videoInfo = await api.getVideoInfo(videoData.bvid)
+    if (!videoInfo) {
+      await e.reply('获取视频信息失败')
       return true
     }
 
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      // 获取aid
-      const videoInfo = await api.getVideoInfo(videoData.bvid)
-      if (!videoInfo) {
-        e.reply('获取视频信息失败')
-        return true
-      }
-
-      // 获取收藏夹
-      const mediaId = await this.getDefaultFavFolder()
-      if (!mediaId) {
-        e.reply('获取收藏夹失败')
-        return true
-      }
-
-      const url = `${API_ENDPOINTS.FAV_DEAL}?rid=${videoInfo.aid}&type=2&add_media_ids=${mediaId}&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 收藏成功！')
-      } else {
-        e.reply(`[Bilibili] 收藏失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 收藏异常: ${error.message}`)
+    const mediaId = await this.getDefaultFavFolder()
+    if (!mediaId) {
+      await e.reply('获取收藏夹失败')
+      return true
     }
 
-    return true
+    return this.doAction(e, {
+      action: '收藏',
+      success: '收藏成功！',
+      url: csrf => `${API_ENDPOINTS.FAV_DEAL}?rid=${videoInfo.aid}&type=2&add_media_ids=${mediaId}&csrf=${csrf}`
+    })
   }
 
   /**
@@ -302,34 +270,17 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) return true
+    const videoInfo = await api.getVideoInfo(videoData.bvid)
+    if (!videoInfo) return true
 
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
+    const mediaId = await this.getDefaultFavFolder()
+    if (!mediaId) return true
 
-    try {
-      const videoInfo = await api.getVideoInfo(videoData.bvid)
-      if (!videoInfo) return true
-
-      const mediaId = await this.getDefaultFavFolder()
-      if (!mediaId) return true
-
-      const url = `${API_ENDPOINTS.FAV_DEAL}?rid=${videoInfo.aid}&type=2&del_media_ids=${mediaId}&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 取消收藏成功')
-      } else {
-        e.reply(`[Bilibili] 取消收藏失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 取消收藏异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '取消收藏',
+      success: '取消收藏成功',
+      url: csrf => `${API_ENDPOINTS.FAV_DEAL}?rid=${videoInfo.aid}&type=2&del_media_ids=${mediaId}&csrf=${csrf}`
+    })
   }
 
   /**
@@ -341,34 +292,14 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData?.bvid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
+    const videoInfo = await api.getVideoInfo(videoData.bvid)
+    if (!videoInfo) return true
 
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const videoInfo = await api.getVideoInfo(videoData.bvid)
-      if (!videoInfo) return true
-
-      const url = `${API_ENDPOINTS.VIDEO_TRIPLE}?aid=${videoInfo.aid}&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 三连成功！')
-      } else {
-        e.reply(`[Bilibili] 三连失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 三连异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '三连',
+      success: '三连成功！',
+      url: csrf => `${API_ENDPOINTS.VIDEO_TRIPLE}?aid=${videoInfo.aid}&csrf=${csrf}`
+    })
   }
 
   /**
@@ -377,38 +308,15 @@ export class BilibiliInteract extends plugin {
   async followUp(e) {
     if (!this.checkEnabled() || !e.isMaster) return false
 
-    const videoData = await this.getVideoFromReply(e)
-    const mid = videoData?.upMid
-
+    const mid = await this.getUpMid(e)
     if (!mid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const url = `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=1&re_src=14&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 关注成功！')
-      } else if (json.code === 22014) {
-        e.reply('[Bilibili] 已经关注过了')
-      } else {
-        e.reply(`[Bilibili] 关注失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 关注异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '关注',
+      success: '关注成功！',
+      known: [[22014, '已经关注过了']],
+      url: csrf => `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=1&re_src=14&csrf=${csrf}`
+    })
   }
 
   /**
@@ -417,33 +325,14 @@ export class BilibiliInteract extends plugin {
   async unfollowUp(e) {
     if (!this.checkEnabled() || !e.isMaster) return false
 
-    const videoData = await this.getVideoFromReply(e)
-    const mid = videoData?.upMid
-
+    const mid = await this.getUpMid(e)
     if (!mid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) return true
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const url = `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=2&re_src=14&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 取消关注成功')
-      } else {
-        e.reply(`[Bilibili] 取消关注失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 取消关注异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '取消关注',
+      success: '取消关注成功',
+      url: csrf => `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=2&re_src=14&csrf=${csrf}`
+    })
   }
 
   /**
@@ -461,7 +350,7 @@ export class BilibiliInteract extends plugin {
       if (!myInfo) return null
 
       const url = `${API_ENDPOINTS.FAV_LIST}?up_mid=${myInfo.mid}`
-      const res = await fetch(url, { headers })
+      const res = await fetchBili(url, { headers })
       const json = await res.json()
 
       if (json.code !== 0 || !json.data?.list?.length) return null
@@ -477,38 +366,15 @@ export class BilibiliInteract extends plugin {
   async blockUp(e) {
     if (!this.checkEnabled() || !e.isMaster) return false
 
-    const videoData = await this.getVideoFromReply(e)
-    const mid = videoData?.upMid
-
+    const mid = await this.getUpMid(e)
     if (!mid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const url = `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=5&re_src=14&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 拉黑成功！')
-      } else if (json.code === 22120) {
-        e.reply('[Bilibili] 这家伙已经在黑名单里了')
-      } else {
-        e.reply(`[Bilibili] 拉黑失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 拉黑异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '拉黑',
+      success: '拉黑成功！',
+      known: [[22120, '这家伙已经在黑名单里了']],
+      url: csrf => `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=5&re_src=14&csrf=${csrf}`
+    })
   }
 
   /**
@@ -517,33 +383,14 @@ export class BilibiliInteract extends plugin {
   async unblockUp(e) {
     if (!this.checkEnabled() || !e.isMaster) return false
 
-    const videoData = await this.getVideoFromReply(e)
-    const mid = videoData?.upMid
-
+    const mid = await this.getUpMid(e)
     if (!mid) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) return true
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    try {
-      const url = `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=6&re_src=14&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      if (json.code === 0) {
-        e.reply('[Bilibili] 取消拉黑成功')
-      } else {
-        e.reply(`[Bilibili] 取消拉黑失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 取消拉黑异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '取消拉黑',
+      success: '取消拉黑成功',
+      url: csrf => `${API_ENDPOINTS.USER_RELATION}?fid=${mid}&act=6&re_src=14&csrf=${csrf}`
+    })
   }
 
   /**
@@ -555,56 +402,28 @@ export class BilibiliInteract extends plugin {
     const videoData = await this.getVideoFromReply(e)
     if (!videoData) return false
 
-    const headers = await buildHeaders(null, true)
-    if (!headers) {
-      e.reply('请先执行 #b站登录')
-      return true
-    }
-
-    const csrf = await this.getCsrf()
-    if (!csrf) return true
-
-    // 提取评论内容
     const message = e.msg.replace(/^#?评论/, '').trim()
     if (!message) {
-      e.reply('请输入评论内容')
+      await e.reply('请输入评论内容')
       return true
     }
 
-    // 获取评论区参数
     const oid = videoData.bvid || videoData.commentId
     const type = videoData.commentType || 1
 
-    try {
-      const url = `${API_ENDPOINTS.REPLY_ADD}?type=${type}&oid=${oid}&message=${encodeURIComponent(message)}&csrf=${csrf}`
-      headers.Accept = 'application/x-www-form-urlencoded'
-      const res = await fetch(url, { method: 'POST', headers })
-      const json = await res.json()
-
-      switch (json.code) {
-        case 0:
-          e.reply(`[Bilibili] 评论「${message}」发送成功！`)
-          break
-        case 12025:
-          e.reply('[Bilibili] 评论字数太多了')
-          break
-        case 12002:
-        case 12052:
-        case 12003:
-          e.reply('[Bilibili] 评论区已关闭')
-          break
-        case -101:
-        case -111:
-        case -403:
-          e.reply('[Bilibili] Cookie可能已失效，请重新登录')
-          break
-        default:
-          e.reply(`[Bilibili] 评论失败: ${json.message}`)
-      }
-    } catch (error) {
-      e.reply(`[Bilibili] 评论异常: ${error.message}`)
-    }
-
-    return true
+    return this.doAction(e, {
+      action: '评论',
+      success: `评论「${message}」发送成功！`,
+      known: [
+        [12025, '评论字数太多了'],
+        [12002, '评论区已关闭'],
+        [12052, '评论区已关闭'],
+        [12003, '评论区已关闭'],
+        [-101, 'Cookie可能已失效，请重新登录'],
+        [-111, 'Cookie可能已失效，请重新登录'],
+        [-403, 'Cookie可能已失效，请重新登录']
+      ],
+      url: csrf => `${API_ENDPOINTS.REPLY_ADD}?type=${type}&oid=${oid}&message=${encodeURIComponent(message)}&csrf=${csrf}`
+    })
   }
 }

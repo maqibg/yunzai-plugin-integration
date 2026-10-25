@@ -69,6 +69,12 @@ export class BilibiliParser extends plugin {
       if (count > 0) {
         logger.mark(`[Bilibili] 清理缓存完成，删除 ${count} 个文件`)
       }
+
+      // 顺带清掉已取消订阅的 UP 主推送记录，避免 data 目录只增不减
+      const pruned = setting.prunePushTime()
+      if (pruned > 0) {
+        logger.mark(`[Bilibili] 清理推送记录完成，移除 ${pruned} 条`)
+      }
     } catch (error) {
       logger.error(`[Bilibili] 清理缓存失败: ${error.message}`)
     }
@@ -115,35 +121,48 @@ export class BilibiliParser extends plugin {
 
     if (!result) return false
 
-    // 检查冷却
+    // 检查冷却：按群（私聊按人）分别计算，A 群刚解析过不该影响 B 群
+    const sceneKey = e.isGroup ? `g${e.group_id}` : `u${e.user_id}`
+    const cooldownKey = `${REDIS_PREFIX.COOLDOWN}${sceneKey}:${result.id}`
     if (config.basic?.cooldown > 0) {
-      const cooldownKey = `${REDIS_PREFIX.COOLDOWN}${result.id}`
       const lastTime = await redis.get(cooldownKey)
       if (lastTime) {
         const seconds = moment().diff(moment(lastTime), 'seconds')
         const remaining = config.basic.cooldown - seconds
         if (remaining > 0) {
-          logger.mark(`[Bilibili] 解析冷却中，剩余 ${remaining} 秒`)
-          return false
+          logger.mark(`[Bilibili] 解析冷却中（${sceneKey}），剩余 ${remaining} 秒`)
+          const where = e.isGroup ? '本群' : '你'
+          await e.reply(`[Bilibili] ${where}刚解析过这个视频，${remaining} 秒后可再次解析`)
+          return true
         }
       }
-      await redis.set(cooldownKey, moment().format('YYYY-MM-DD HH:mm:ss'), { EX: config.basic.cooldown })
     }
 
     // 根据类型分发
+    let parsed = false
     if (result.type === 'video') {
       e.bilibiliData = { bvid: result.id }
-      return this.retryParseAction('视频解析', ({ notifyError }) =>
+      parsed = await this.retryParseAction('视频解析', ({ notifyError }) =>
         this.handleVideo(e, result.id, { notifyError })
       )
     } else if (result.type === 'dynamic') {
       e.bilibiliData = { dynamicId: result.id }
-      return this.retryParseAction('动态解析', ({ notifyError }) =>
+      parsed = await this.retryParseAction('动态解析', ({ notifyError }) =>
         this.handleDynamic(e, result.id, { notifyError })
+      )
+    } else if (result.type === 'live') {
+      e.bilibiliData = { roomId: result.id }
+      parsed = await this.retryParseAction('直播解析', ({ notifyError }) =>
+        this.handleLive(e, result.id, { notifyError })
       )
     }
 
-    return false
+    // 解析成功才写冷却：偶发失败不该把这个视频锁住几分钟
+    if (parsed && config.basic?.cooldown > 0) {
+      await redis.set(cooldownKey, moment().format('YYYY-MM-DD HH:mm:ss'), { EX: config.basic.cooldown })
+    }
+
+    return parsed
   }
 
   async retryParseAction(actionName, action) {
@@ -209,7 +228,8 @@ export class BilibiliParser extends plugin {
       { pattern: URL_PATTERNS.DYNAMIC_WWW, type: 'dynamic' },
       { pattern: URL_PATTERNS.DYNAMIC_M, type: 'dynamic' },
       { pattern: URL_PATTERNS.DYNAMIC_M2, type: 'dynamic' },
-      { pattern: URL_PATTERNS.DYNAMIC_T, type: 'dynamic' }
+      { pattern: URL_PATTERNS.DYNAMIC_T, type: 'dynamic' },
+      { pattern: URL_PATTERNS.LIVE, type: 'live' }
     ]
 
     for (const { pattern, type } of patterns) {
@@ -275,7 +295,7 @@ export class BilibiliParser extends plugin {
       // 如果配置了自动选择第一P
       if (setting.getConfig().multiPage?.autoFirstPage) {
         msg += '\n\n5秒后自动播放P1...'
-        e.reply(msg)
+        await e.reply(msg)
 
         // 延迟后自动处理第一P
         setTimeout(() => {
@@ -284,7 +304,7 @@ export class BilibiliParser extends plugin {
         return true
       }
 
-      e.reply(msg)
+      await e.reply(msg)
       return true
     }
 
@@ -316,7 +336,7 @@ export class BilibiliParser extends plugin {
 
     // 验证分P范围
     if (pageNum < 1 || pageNum > pageData.pages.length) {
-      e.reply(`分P选择无效，请选择 1-${pageData.pages.length}`)
+      await e.reply(`分P选择无效，请选择 1-${pageData.pages.length}`)
       return true
     }
 
@@ -342,6 +362,25 @@ export class BilibiliParser extends plugin {
       logger.error(`[Bilibili] 处理视频失败: ${error.message}`)
       if (notifyError) {
         await e.reply('B站视频解析失败，请稍后重试')
+      }
+      return false
+    }
+  }
+
+  /**
+   * 处理直播间链接
+   */
+  async handleLive(e, roomId, options = {}) {
+    const { notifyError = true } = options
+
+    try {
+      const { BilibiliLive } = await import('./BilibiliLive.js')
+      const liveHandler = new BilibiliLive()
+      return await liveHandler.processLive(e, roomId, { notifyError })
+    } catch (error) {
+      logger.error(`[Bilibili] 处理直播失败: ${error.message}`)
+      if (notifyError) {
+        await e.reply('B站直播解析失败，请稍后重试')
       }
       return false
     }

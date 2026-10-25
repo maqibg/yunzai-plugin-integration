@@ -29,10 +29,9 @@ yunzai-plugin-integration 是一个为 Yunzai-Bot 设计的综合性插件，集
 
 ### 🌸 **多媒体解析模块 (Lotus)**
 
-- 📺 **B站解析**：支持视频、直播、动态解析
-- 🔧 **BBDown集成**：支持会员内容解析
-- ⚡ **Aria2加速**：下载加速支持
-- 📊 **智能大小检查**：自动检测视频大小，超限仅提供信息
+- 📺 **B站解析**：视频（含分P）、动态、直播间、评论区、点赞投币收藏关注
+- 🎬 **画质与下载**：登录后走高清分离流下载并合并，未登录自动降级；同一条视频解析成功才会进入冷却
+- 📦 **大文件处理**：下载前先按配置预估大小，超过直发上限自动改为上传群文件
 - 🎨 **自定义配置**：灵活的解析参数设置
 
 ### 🤖 **自动化模块 (Auto-Plugin)**
@@ -97,7 +96,7 @@ pnpm install -P  # 安装所有插件的生产依赖
 plugins/yunzai-plugin-integration/
 ├── config/
 │   ├── hs-kunkundinzhen.yaml      # 娱乐功能配置
-│   ├── lotus-parser.yaml          # 多媒体解析配置
+│   ├── bilibili.yaml              # B站解析配置（首次自动生成）
 │   └── rconsole.yaml              # Rconsole 查询与趣味配置（首次自动生成）
 └── resources/                     # 资源文件
 ```
@@ -113,27 +112,43 @@ kunkun: true    # 坤坤功能开关
 weekday: true   # 星期几功能开关
 ```
 
-#### Lotus解析配置
+#### B站解析配置
 
 ```yaml
-# lotus-parser.yaml
-bilibili:
-  sessData: ""           # B站登录凭证
-  useBBDown: true        # 启用BBDown
-  useAria2: true         # 启用Aria2加速
-  resolution: 64         # 默认画质 (720P)
-  durationLimit: 3600    # 时长限制(秒)
-  fileSizeLimit: 200     # 文件大小限制(MB)
-  # 展示控制（新增）
-  displayCover: true     # 是否显示封面
-  displayInfo: true      # 是否显示播放/弹幕/点赞等信息
-  displayIntro: false    # 是否显示简介
-  introLenLimit: 120     # 简介最大长度
-  displaySummary: false  # 是否显示B站官方总结（需Cookie，可能受限）
+# bilibili.yaml
+basic:
+  enable: true           # 解析功能开关
+  cooldown: 10           # 同一群内同一视频的解析冷却（秒），私聊按人算
 
-general:
-  identifyPrefix: "[Lotus解析]"  # 消息前缀
-  videoSizeLimit: 100           # 文件大小限制(MB)
+auth:
+  cookie: ""             # 扫码登录后自动写入，不要手改
+  refresh_token: ""      # 刷新令牌，同样由登录流程维护
+
+video:
+  quality: 80            # 默认画质（64=720P 80=1080P 112=1080P高码率，高画质需大会员）
+  durationLimit: 3600    # 超过这个时长只发信息不下载（秒）
+  fileSizeLimit: 2580    # 超过这个大小不下载（MB，0 表示不限）
+  sendThreshold: 200     # 超过这个大小改为上传群文件（MB）
+  smartQuality:
+    enable: true         # 按文件大小自动降级画质
+    threshold: 100       # 触发降级的体积（MB）
+    targetSize: 80       # 降级目标体积（MB）
+    priority: [80, 64, 32, 16]
+
+multiPage:
+  timeout: 300           # 分P选择等待时间（秒）
+  autoFirstPage: false   # 是否自动播放第一P
+
+display:
+  showCover: true        # 显示封面
+  showStats: true        # 显示播放量/弹幕/点赞
+  showDesc: true         # 显示简介
+  descMaxLength: 120     # 简介截断长度
+  commentCount: 10       # 「展开N」显示多少条评论
+
+push:
+  enable: true           # UP主更新推送
+  interval: 3            # 检查间隔（分钟），改动后需重启
 ```
 
 #### Rconsole 配置
@@ -286,8 +301,8 @@ A: 请检查：
 A: 请检查：
 
 - 网络连接是否正常
-- 是否配置了正确的 sessData
-- BBDown 工具是否正确安装
+- 是否已完成扫码登录（执行 #b站登录），Cookie 过期会提示重新登录
+- 机器人是否还在登录状态（执行 #b站登录 可重新扫码）
 - 链接格式是否正确
 
 ## 📄 许可证

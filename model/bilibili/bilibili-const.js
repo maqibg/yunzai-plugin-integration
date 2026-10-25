@@ -73,6 +73,10 @@ export const API_ENDPOINTS = {
   COOKIE_REFRESH: 'https://passport.bilibili.com/x/passport-login/web/cookie/refresh',
   CONFIRM_REFRESH: 'https://passport.bilibili.com/x/passport-login/web/confirm/refresh',
 
+  // 直播相关
+  LIVE_ROOM_INFO: 'https://api.live.bilibili.com/room/v1/Room/get_info',
+  LIVE_ANCHOR_INFO: 'https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room',
+
   // 其他
   FINGER_SPI: 'https://api.bilibili.com/x/frontend/finger/spi',
   GEN_WEB_TICKET: 'https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket'
@@ -117,8 +121,7 @@ export const DEFAULT_HEADERS = {
 export const REDIS_PREFIX = {
   BILI_TICKET: 'bilibili:ticket',
   PAGE_SELECT: 'bilibili:page_select:',
-  COOLDOWN: 'bilibili:cooldown:',
-  PUSH: 'bilibili:push:'
+  COOLDOWN: 'bilibili:cooldown:'
 }
 
 // 临时文件目录

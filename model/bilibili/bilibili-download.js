@@ -4,10 +4,10 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import fetch from 'node-fetch'
-import { execSync } from 'child_process'
+import { spawn } from 'child_process'
+import { pipeline } from 'node:stream/promises'
 import setting from './bilibili-setting.js'
-import api, { buildHeaders } from './bilibili-api.js'
+import api, { buildHeaders, fetchBili } from './bilibili-api.js'
 import { QN_MAP, QUALITY_PRIORITY, DEFAULT_HEADERS } from './bilibili-const.js'
 
 const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integration')
@@ -16,6 +16,41 @@ const pluginRoot = path.join(process.cwd(), 'plugins', 'yunzai-plugin-integratio
  * 下载状态管理（防止并发下载）
  */
 let isDownloading = false
+
+/**
+ * 预估大小与紧随其后的下载会问同一份播放地址和文件大小，用短缓存避免重复请求
+ */
+const MEDIA_CACHE_TTL = 2 * 60 * 1000
+const playUrlCache = new Map()
+const streamSizeCache = new Map()
+
+function cacheGet(cache, key) {
+  const hit = cache.get(key)
+  if (!hit) return undefined
+  if (Date.now() - hit.time > MEDIA_CACHE_TTL) {
+    cache.delete(key)
+    return undefined
+  }
+  return hit.value
+}
+
+function cacheSet(cache, key, value) {
+  cache.set(key, { value, time: Date.now() })
+  // 条目上限，避免机器人长期运行后缓存无限增长
+  if (cache.size > 200) {
+    cache.delete(cache.keys().next().value)
+  }
+}
+
+async function getPlayUrlCached(bvid, cid, qn) {
+  const key = `${bvid}:${cid}:${qn}`
+  const cached = cacheGet(playUrlCache, key)
+  if (cached !== undefined) return cached
+
+  const data = await api.getPlayUrl(bvid, cid, qn)
+  if (data) cacheSet(playUrlCache, key, data)
+  return data
+}
 
 /**
  * 重置下载锁
@@ -29,6 +64,43 @@ function resetDownloadLock() {
  */
 function getDownloadStatus() {
   return isDownloading
+}
+
+/**
+ * 下载排队：同一时刻只跑一个下载，后来的排队而不是被直接拒绝
+ */
+const MAX_DOWNLOAD_QUEUE = 3
+let queueCount = 0
+let runningChain = Promise.resolve()
+
+/**
+ * 异步执行 ffmpeg（原来用 execSync 会把整个机器人卡住最长 5 分钟）
+ */
+function runFfmpeg(bin, args, timeoutMs = 300000) {
+  return new Promise((resolve, reject) => {
+    let stderr = ''
+    const child = spawn(bin, args)
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`合并超时（${timeoutMs}ms）`))
+    }, timeoutMs)
+
+    child.stderr?.on('data', chunk => {
+      stderr = (stderr + chunk.toString()).slice(-2000)
+    })
+
+    child.on('error', error => {
+      clearTimeout(timer)
+      reject(error)
+    })
+
+    child.on('close', code => {
+      clearTimeout(timer)
+      if (code === 0) resolve()
+      else reject(new Error(`ffmpeg 退出码 ${code}: ${stderr.trim()}`))
+    })
+  })
 }
 
 /**
@@ -52,10 +124,16 @@ function formatSize(bytes) {
  * 获取流的文件大小
  */
 async function getStreamSize(url, headers) {
+  const cached = cacheGet(streamSizeCache, url)
+  if (cached !== undefined) return cached
+
   try {
-    const res = await fetch(url, { method: 'HEAD', headers })
+    const res = await fetchBili(url, { method: 'HEAD', headers })
     const size = parseInt(res.headers.get('content-length'), 10)
-    return isNaN(size) ? 0 : size
+    const result = isNaN(size) ? 0 : size
+    // 0 多半是临时失败，不写缓存，留给下次重试
+    if (result > 0) cacheSet(streamSizeCache, url, result)
+    return result
   } catch {
     return 0
   }
@@ -65,12 +143,13 @@ async function getStreamSize(url, headers) {
  * 下载流到文件
  */
 async function downloadStream(url, filePath, headers) {
-  const res = await fetch(url, { headers })
+  const res = await fetchBili(url, { headers })
   if (!res.ok) throw new Error(`下载失败: ${res.status}`)
 
-  const buffer = Buffer.from(await res.arrayBuffer())
-  fs.writeFileSync(filePath, buffer)
-  return buffer.length
+  const declared = parseInt(res.headers.get('content-length'), 10) || 0
+  // 边下边写盘：音视频流可能有几百 MB，整份读进内存容易把进程撑爆
+  await pipeline(res.body, fs.createWriteStream(filePath))
+  return declared || fs.statSync(filePath).size
 }
 
 /**
@@ -95,7 +174,7 @@ async function smartQualitySelection(bvid, cid, headers) {
   const priority = smartConfig.priority || [80, 64, 32, 16]
 
   // 获取播放地址并检查大小
-  const playData = await api.getPlayUrl(bvid, cid, targetQn)
+  const playData = await getPlayUrlCached(bvid, cid, targetQn)
   if (!playData?.dash?.video?.length) {
     logger.error(`[Bilibili] 智能画质获取播放地址失败: bvid=${bvid}, cid=${cid}, qn=${targetQn}, dash=${!!playData?.dash}, video=${playData?.dash?.video?.length || 0}, audio=${playData?.dash?.audio?.length || 0}`)
     return { qn: targetQn, reason: null }
@@ -153,7 +232,7 @@ async function smartQualitySelection(bvid, cid, headers) {
     // 跳过比当前画质更高或相同的
     if (qn >= actualQn) continue
 
-    const lowerPlayData = await api.getPlayUrl(bvid, cid, qn)
+    const lowerPlayData = await getPlayUrlCached(bvid, cid, qn)
     if (!lowerPlayData?.dash?.video?.length) continue
 
     const lowerVideo = lowerPlayData.dash.video.find(v => v.id <= qn) ||
@@ -226,14 +305,11 @@ async function downloadAndMerge(videoUrl, audioUrl, outputPath, headers) {
     // FFmpeg合并
     logger.mark('[Bilibili] 开始合并...')
 
-    const ffmpegCmd = hasAudio
-      ? `"${ffmpegPath}" -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a copy -f mp4 -y -loglevel error "${outputPath}"`
-      : `"${ffmpegPath}" -i "${videoPath}" -c:v copy -f mp4 -y -loglevel error "${outputPath}"`
+    const ffmpegArgs = hasAudio
+      ? ['-i', videoPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'copy', '-f', 'mp4', '-y', '-loglevel', 'error', outputPath]
+      : ['-i', videoPath, '-c:v', 'copy', '-f', 'mp4', '-y', '-loglevel', 'error', outputPath]
 
-    execSync(ffmpegCmd, {
-      cwd: tempDir,
-      timeout: 300000 // 5分钟超时
-    })
+    await runFfmpeg(ffmpegPath, ffmpegArgs, 300000)
 
     logger.mark('[Bilibili] 合并完成')
 
@@ -265,10 +341,46 @@ class BilibiliDownloader {
    * @param {boolean} sendMessage 是否发送下载消息
    */
   async download(e, bvid, pageIndex = 0, sendMessage = true) {
-    if (isDownloading) {
-      if (sendMessage) e.reply('有其他视频正在下载中，请稍后再试', true)
+    // 排队而不是直接拒绝：最多再排 MAX_DOWNLOAD_QUEUE 个，超出才回绝
+    if (queueCount > MAX_DOWNLOAD_QUEUE) {
+      if (sendMessage) await e.reply(`当前有 ${queueCount} 个视频在排队，请稍后再试`, true)
       return null
     }
+
+    queueCount++
+    const previous = runningChain
+    let release
+    runningChain = new Promise(resolve => { release = resolve })
+
+    try {
+      if (queueCount > 1 && sendMessage) {
+        await e.reply(`已加入下载队列（前面还有 ${queueCount - 1} 个），完成后自动开始`, true)
+      }
+      await previous
+      return await this.downloadInner(e, bvid, pageIndex, sendMessage)
+    } finally {
+      release()
+      queueCount--
+    }
+  }
+
+  /**
+   * 以文件形式发送（超过直接发送上限时走这里）
+   */
+  async sendAsFile(e, filePath, fileName) {
+    const target = e.isGroup ? e.group : e.friend
+    if (target?.sendFile) {
+      await target.sendFile(filePath, fileName)
+      return true
+    }
+    await e.reply(segment.file(filePath, fileName))
+    return true
+  }
+
+  /**
+   * 实际下载流程（由 download 排队后调用）
+   */
+  async downloadInner(e, bvid, pageIndex = 0, sendMessage = true) {
 
     const config = setting.getConfig()
     const videoConfig = config.video || {}
@@ -313,7 +425,7 @@ class BilibiliDownloader {
     const qualityResult = await smartQualitySelection(bvid, cid, headers)
     if (!qualityResult.videoUrl) {
       // 需要重新获取播放地址
-      const playData = await api.getPlayUrl(bvid, cid, qualityResult.qn)
+      const playData = await getPlayUrlCached(bvid, cid, qualityResult.qn)
       // 只要有视频流即可下载；audio 为空只代表稿件本身无声，不视为失败
       if (!playData?.dash?.video?.length) {
         logger.error(`[Bilibili] 获取视频下载地址失败: bvid=${bvid}, cid=${cid}, qn=${qualityResult.qn}, dash=${!!playData?.dash}, video=${playData?.dash?.video?.length || 0}, audio=${playData?.dash?.audio?.length || 0}`)
@@ -342,11 +454,9 @@ class BilibiliDownloader {
       return null
     }
 
-    // 检查最大发送限制（约100MB）
-    if (qualityResult.size > 104857600) {
-      if (sendMessage) e.reply('视频超过100MB，无法直接发送')
-      return null
-    }
+    // 直接发送上限来自配置（video.sendThreshold，默认 100MB），超过则下载后上传群文件
+    const directLimit = (videoConfig.sendThreshold || 100) * 1048576
+    const useGroupFile = qualityResult.size > directLimit
 
     isDownloading = true
 
@@ -355,6 +465,9 @@ class BilibiliDownloader {
       let msg = `开始下载视频，画质: ${getQualityName(qualityResult.qn)}, 大小: ${formatSize(qualityResult.size)}`
       if (qualityResult.reason) {
         msg += `\n${qualityResult.reason}`
+      }
+      if (useGroupFile) {
+        msg += `\n超过 ${videoConfig.sendThreshold || 100}MB，下载完成后上传为群文件`
       }
       downloadMsg = await e.reply(msg, true)
     }
@@ -391,6 +504,15 @@ class BilibiliDownloader {
         } catch { }
       }
 
+      // 超过直接发送上限时改上传群文件，避免大视频直接丢失
+      if (useGroupFile) {
+        await this.sendAsFile(e, outputPath, `${bvid}_p${pageIndex + 1}.mp4`)
+        setTimeout(() => {
+          if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath)
+        }, 60000)
+        return null
+      }
+
       // 返回视频segment
       const video = segment.video(outputPath)
 
@@ -419,6 +541,8 @@ class BilibiliDownloader {
   async downloadHtml5(e, aid, cid, bvid, pageIndex, sendMessage = true) {
     isDownloading = true
 
+    const videoConfig = setting.getConfig().video || {}
+
     let downloadMsg = null
     if (sendMessage) {
       downloadMsg = await e.reply('开始下载视频 (360P)...', true)
@@ -433,6 +557,17 @@ class BilibiliDownloader {
       }
 
       const videoUrl = playData.durl[0].url
+      // 接口会一并给出成品大小，先按配置判断要不要下、要不要走群文件
+      const declaredSize = playData.durl[0].size || 0
+      const fileSizeLimit = (videoConfig.fileSizeLimit || 0) * 1048576
+      if (fileSizeLimit > 0 && declaredSize > fileSizeLimit) {
+        if (sendMessage) {
+          await e.reply(`视频大小 ${formatSize(declaredSize)} 超过限制 ${videoConfig.fileSizeLimit}MB，不进行下载`)
+        }
+        return null
+      }
+      const directLimit = (videoConfig.sendThreshold || 100) * 1048576
+      const useGroupFile = declaredSize > directLimit
 
       // 下载视频
       const tempDir = setting.tempPath
@@ -443,7 +578,7 @@ class BilibiliDownloader {
 
       logger.mark('[Bilibili] 开始下载 HTML5 视频...')
 
-      const res = await fetch(videoUrl, {
+      const res = await fetchBili(videoUrl, {
         headers: {
           ...DEFAULT_HEADERS,
           Referer: 'https://www.bilibili.com/'
@@ -455,8 +590,8 @@ class BilibiliDownloader {
         return null
       }
 
-      const buffer = Buffer.from(await res.arrayBuffer())
-      fs.writeFileSync(outputPath, buffer)
+      // 边下边写盘，避免整份视频进内存
+      await pipeline(res.body, fs.createWriteStream(outputPath))
 
       logger.mark('[Bilibili] HTML5 视频下载完成')
 
@@ -469,6 +604,14 @@ class BilibiliDownloader {
             await e.friend.recallMsg(downloadMsg.message_id)
           }
         } catch { }
+      }
+
+      if (useGroupFile) {
+        await this.sendAsFile(e, outputPath, `${bvid}_p${pageIndex + 1}.mp4`)
+        setTimeout(() => {
+          if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath)
+        }, 60000)
+        return null
       }
 
       const video = segment.video(outputPath)
@@ -525,7 +668,7 @@ class BilibiliDownloader {
     const headers = await buildHeaders(null, true)
     if (!headers) return 0
 
-    const playData = await api.getPlayUrl(bvid, cid, qn)
+    const playData = await getPlayUrlCached(bvid, cid, qn)
     if (!playData?.dash) return 0
 
     const video = playData.dash.video?.find(v => v.id <= qn) || playData.dash.video?.[0]

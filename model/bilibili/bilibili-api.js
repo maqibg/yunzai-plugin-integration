@@ -14,6 +14,77 @@ import {
 } from './bilibili-const.js'
 import setting from './bilibili-setting.js'
 
+// 统一请求超时：B站接口偶发无响应，没有超时会一直占着消息处理流程
+const FETCH_TIMEOUT = 15000
+const WBI_CACHE_TTL = 2 * 60 * 60 * 1000
+
+// 风控码对照：这些不是普通失败，需要降速或换 Cookie 才有用
+const RISK_CODES = {
+  '-352': '触发B站风控，请稍后再试，或重新执行 #b站登录 换一份 Cookie',
+  '-412': '请求被B站限流，请稍后再试',
+  '-799': '请求过于频繁，请稍后再试'
+}
+
+/**
+ * 把接口返回码翻译成给用户看的话
+ */
+function explainBiliCode(code, message = '') {
+  const risk = RISK_CODES[String(code)]
+  if (risk) return risk
+  return message || `请求失败（code=${code}）`
+}
+
+// 命中风控后的一段时间内自动降低请求频率（只做温和延迟，不把用户消息拖死）
+const VIDEO_INFO_TTL = 30 * 1000
+const videoInfoCache = new Map()
+const videoInfoInflight = new Map()
+
+const RISK_BACKOFF_MS = { '-352': 60 * 1000, '-412': 5 * 60 * 1000, '-799': 30 * 1000 }
+const RISK_MAX_DELAY = 1500
+let riskUntil = 0
+
+function noteRisk(code) {
+  const ms = RISK_BACKOFF_MS[String(code)]
+  if (!ms) return
+  riskUntil = Math.max(riskUntil, Date.now() + ms)
+  logger.warn(`[Bilibili] 命中风控 ${code}，${Math.round(ms / 1000)} 秒内自动降速请求`)
+}
+
+async function waitRisk() {
+  const remain = riskUntil - Date.now()
+  if (remain <= 0) return
+  await new Promise(resolve => setTimeout(resolve, Math.min(remain, RISK_MAX_DELAY)))
+}
+
+/**
+ * 解析接口返回并顺带记录风控码
+ */
+async function readBiliJson(res) {
+  const json = await res.json()
+  noteRisk(json?.code)
+  return json
+}
+
+/**
+ * 带超时的请求封装
+ */
+async function fetchBili(url, options = {}, timeoutMs = FETCH_TIMEOUT) {
+  await waitRisk()
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`请求超时（${timeoutMs}ms）: ${String(url).slice(0, 80)}`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * 获取混淆密钥
  */
@@ -49,21 +120,28 @@ function encWbi(params, imgKey, subKey) {
 /**
  * 获取WBI密钥
  */
+let wbiKeyCache = { keys: null, expire: 0 }
+
 async function getWbiKeys(headers) {
+  // 密钥约两小时才轮换，缓存住可以省掉每个接口请求前的一次网络往返
+  if (wbiKeyCache.keys && Date.now() < wbiKeyCache.expire) return wbiKeyCache.keys
+
   try {
-    const res = await fetch(API_ENDPOINTS.USER_NAV, { headers })
-    const json = await res.json()
+    const res = await fetchBili(API_ENDPOINTS.USER_NAV, { headers })
+    const json = await readBiliJson(res)
 
     if (json.code !== 0) {
-      logger.error(`[Bilibili] 获取WBI密钥失败: ${json.message}`)
+      logger.error(`[Bilibili] 获取WBI密钥失败: ${explainBiliCode(json.code, json.message)}`)
       return null
     }
 
     const { img_url, sub_url } = json.data.wbi_img
-    return {
+    const keys = {
       imgKey: img_url.slice(img_url.lastIndexOf('/') + 1, img_url.lastIndexOf('.')),
       subKey: sub_url.slice(sub_url.lastIndexOf('/') + 1, sub_url.lastIndexOf('.'))
     }
+    wbiKeyCache = { keys, expire: Date.now() + WBI_CACHE_TTL }
+    return keys
   } catch (error) {
     logger.error(`[Bilibili] 获取WBI密钥异常: ${error.message}`)
     return null
@@ -105,7 +183,7 @@ async function getBiliTicket(csrf) {
   })
 
   try {
-    const response = await fetch(`${API_ENDPOINTS.GEN_WEB_TICKET}?${params.toString()}`, {
+    const response = await fetchBili(`${API_ENDPOINTS.GEN_WEB_TICKET}?${params.toString()}`, {
       method: 'POST',
       headers: DEFAULT_HEADERS
     })
@@ -133,8 +211,8 @@ async function getBiliTicket(csrf) {
 async function getBuvid(cookie) {
   const headers = { ...DEFAULT_HEADERS, Cookie: cookie }
   try {
-    const res = await fetch(API_ENDPOINTS.FINGER_SPI, { headers })
-    const json = await res.json()
+    const res = await fetchBili(API_ENDPOINTS.FINGER_SPI, { headers })
+    const json = await readBiliJson(res)
 
     if (json.code === 0) {
       return {
@@ -204,16 +282,45 @@ async function buildHeaders(customCookie = null, requireLogin = false) {
 class BilibiliApi {
   /**
    * 获取视频基础信息（无需登录）
+   * 解析一条视频会连续问好几次，加 30 秒缓存并合并并发请求
    */
   async getVideoInfo(bvid) {
+    const key = String(bvid)
+    const hit = videoInfoCache.get(key)
+    if (hit && Date.now() - hit.time < VIDEO_INFO_TTL) return hit.value
+
+    if (videoInfoInflight.has(key)) return videoInfoInflight.get(key)
+
+    const task = (async () => {
+      const data = await this.fetchVideoInfo(bvid)
+      if (data) {
+        videoInfoCache.set(key, { value: data, time: Date.now() })
+        // 简单上限，避免长期运行涨到无限大
+        if (videoInfoCache.size > 200) videoInfoCache.delete(videoInfoCache.keys().next().value)
+      }
+      return data
+    })()
+
+    videoInfoInflight.set(key, task)
+    try {
+      return await task
+    } finally {
+      videoInfoInflight.delete(key)
+    }
+  }
+
+  /**
+   * 真正请求视频信息
+   */
+  async fetchVideoInfo(bvid) {
     try {
       // 兼容 av 号：av 链接解析出来的是 av 号，接口需要用 aid 查询
       const av = String(bvid).match(/^av(\d+)$/i)
       const url = av
         ? `${API_ENDPOINTS.VIDEO_INFO}?aid=${av[1]}`
         : `${API_ENDPOINTS.VIDEO_INFO}?bvid=${bvid}`
-      const res = await fetch(url, { headers: DEFAULT_HEADERS })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers: DEFAULT_HEADERS })
+      const json = await readBiliJson(res)
 
       if (json.code === 62012) {
         logger.warn('[Bilibili] 稿件仅UP主自己可见')
@@ -221,7 +328,7 @@ class BilibiliApi {
       }
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取视频信息失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取视频信息失败: ${explainBiliCode(json.code, json.message)}`)
         return null
       }
 
@@ -238,11 +345,11 @@ class BilibiliApi {
   async getPageList(bvid) {
     try {
       const url = `${API_ENDPOINTS.VIDEO_PAGELIST}?bvid=${bvid}`
-      const res = await fetch(url, { headers: DEFAULT_HEADERS })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers: DEFAULT_HEADERS })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取分P列表失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取分P列表失败: ${explainBiliCode(json.code, json.message)}`)
         return null
       }
 
@@ -260,7 +367,8 @@ class BilibiliApi {
    * @param {number} qn 画质
    */
   async getPlayUrl(bvid, cid, qn = 64) {
-    const headers = await buildHeaders()
+    // DASH 地址必须登录才会给到 1080P 以上；匿名时直接返回 null，由调用方走 html5 路线
+    const headers = await buildHeaders(null, true)
     if (!headers) return null
 
     const params = {
@@ -277,11 +385,11 @@ class BilibiliApi {
       if (!query) return null
 
       const url = `${API_ENDPOINTS.VIDEO_PLAYURL}?${query}`
-      const res = await fetch(url, { headers })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取播放地址失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取播放地址失败: ${explainBiliCode(json.code, json.message)}`)
         return null
       }
 
@@ -301,11 +409,11 @@ class BilibiliApi {
   async getPlayUrlHtml5(aid, cid, qn = 16) {
     try {
       const url = `${API_ENDPOINTS.VIDEO_PLAYURL_HTML5}?avid=${aid}&cid=${cid}&qn=${qn}&type=mp4&platform=html5`
-      const res = await fetch(url, { headers: DEFAULT_HEADERS })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers: DEFAULT_HEADERS })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取HTML5播放地址失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取HTML5播放地址失败: ${explainBiliCode(json.code, json.message)}`)
         return null
       }
 
@@ -322,8 +430,8 @@ class BilibiliApi {
   async getOnlineCount(bvid, cid) {
     try {
       const url = `${API_ENDPOINTS.VIDEO_ONLINE}?bvid=${bvid}&cid=${cid}`
-      const res = await fetch(url, { headers: DEFAULT_HEADERS })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers: DEFAULT_HEADERS })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) return 0
       return json.data?.total || 0
@@ -338,11 +446,11 @@ class BilibiliApi {
   async getUserCard(mid) {
     try {
       const url = `${API_ENDPOINTS.USER_CARD}?mid=${mid}`
-      const res = await fetch(url, { headers: DEFAULT_HEADERS })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers: DEFAULT_HEADERS })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取用户信息失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取用户信息失败: ${explainBiliCode(json.code, json.message)}`)
         return null
       }
 
@@ -363,8 +471,8 @@ class BilibiliApi {
     if (!headers) return null
 
     try {
-      const res = await fetch(API_ENDPOINTS.USER_NAV, { headers })
-      const json = await res.json()
+      const res = await fetchBili(API_ENDPOINTS.USER_NAV, { headers })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) return null
       return json.data
@@ -387,11 +495,11 @@ class BilibiliApi {
       if (!query) return null
 
       const url = `${API_ENDPOINTS.USER_SPACE_ARC}?${query}`
-      const res = await fetch(url, { headers })
-      const json = await res.json()
+      const res = await fetchBili(url, { headers })
+      const json = await readBiliJson(res)
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取用户投稿失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取用户投稿失败: ${explainBiliCode(json.code, json.message)}`)
         return null
       }
 
@@ -413,30 +521,30 @@ class BilibiliApi {
   /**
    * 检查视频是否点赞/投币/收藏
    */
-  async checkVideoStatus(bvid) {
+  async checkVideoStatus(bvid, aid) {
     const headers = await buildHeaders()
     if (!headers) return { like: false, coin: false, favoured: false }
 
-    try {
-      // 检查点赞
-      const likeRes = await fetch(`${API_ENDPOINTS.VIDEO_HAS_LIKE}?bvid=${bvid}`, { headers })
-      const likeJson = await likeRes.json()
-      const like = likeJson.code === 0 && likeJson.data === 1
-
-      // 检查投币
-      const coinRes = await fetch(`${API_ENDPOINTS.VIDEO_COINS}?bvid=${bvid}`, { headers })
-      const coinJson = await coinRes.json()
-      const coin = coinJson.code === 0 && coinJson.data?.multiply > 0
-
-      // 检查收藏
-      const favRes = await fetch(`${API_ENDPOINTS.VIDEO_FAVOURED}?aid=${bvid}`, { headers })
-      const favJson = await favRes.json()
-      const favoured = favJson.code === 0 && favJson.data?.favoured
-
-      return { like, coin, favoured }
-    } catch (error) {
-      return { like: false, coin: false, favoured: false }
+    // 三个状态互不依赖，并发请求，少等两轮往返
+    const probe = async (url, pick) => {
+      try {
+        const res = await fetchBili(url, { headers })
+        const json = await readBiliJson(res)
+        return json.code === 0 && pick(json)
+      } catch (error) {
+        logger.debug(`[Bilibili] 查询互动状态失败: ${error.message}`)
+        return false
+      }
     }
+
+    const [like, coin, favoured] = await Promise.all([
+      probe(`${API_ENDPOINTS.VIDEO_HAS_LIKE}?bvid=${bvid}`, json => json.data === 1),
+      probe(`${API_ENDPOINTS.VIDEO_COINS}?bvid=${bvid}`, json => json.data?.multiply > 0),
+      // 收藏接口只认 aid，传 BV 号会永远返回未收藏
+      aid ? probe(`${API_ENDPOINTS.VIDEO_FAVOURED}?aid=${aid}`, json => Boolean(json.data?.favoured)) : false
+    ])
+
+    return { like, coin, favoured }
   }
 
   /**
@@ -444,7 +552,7 @@ class BilibiliApi {
    */
   async resolveShortLink(shortUrl) {
     try {
-      const res = await fetch(shortUrl, { redirect: 'manual' })
+      const res = await fetchBili(shortUrl, { redirect: 'manual' })
       const location = res.headers.get('location') || res.url
 
       // 匹配视频
@@ -474,5 +582,7 @@ export {
   getBuvid,
   hmacSha256,
   encWbi,
-  getWbiKeys
+  getWbiKeys,
+  fetchBili,
+  explainBiliCode
 }

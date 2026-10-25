@@ -2,11 +2,10 @@
  * Bilibili 登录管理模块
  * 负责扫码登录、Cookie刷新等
  */
-import fetch from 'node-fetch'
 import QRCode from 'qrcode'
 import crypto from 'node:crypto'
 import setting from '../../model/bilibili/bilibili-setting.js'
-import api, { getBuvid, getBiliTicket } from '../../model/bilibili/bilibili-api.js'
+import api, { getBuvid, getBiliTicket, fetchBili } from '../../model/bilibili/bilibili-api.js'
 import { API_ENDPOINTS, DEFAULT_HEADERS } from '../../model/bilibili/bilibili-const.js'
 
 export class BilibiliLogin extends plugin {
@@ -46,17 +45,17 @@ export class BilibiliLogin extends plugin {
    */
   async login(e) {
     if (!e.isMaster) {
-      e.reply('仅主人可执行登录操作')
+      await e.reply('仅主人可执行登录操作')
       return true
     }
 
     try {
       // 获取二维码
-      const res = await fetch(API_ENDPOINTS.QR_GENERATE, { headers: DEFAULT_HEADERS })
+      const res = await fetchBili(API_ENDPOINTS.QR_GENERATE, { headers: DEFAULT_HEADERS })
       const json = await res.json()
 
       if (json.code !== 0) {
-        e.reply('获取登录二维码失败')
+        await e.reply('获取登录二维码失败')
         return true
       }
 
@@ -77,7 +76,7 @@ export class BilibiliLogin extends plugin {
       for (let i = 0; i < 120; i++) {
         await this.sleep(1000)
 
-        const pollRes = await fetch(`${API_ENDPOINTS.QR_POLL}?qrcode_key=${qrcodeKey}`, {
+        const pollRes = await fetchBili(`${API_ENDPOINTS.QR_POLL}?qrcode_key=${qrcodeKey}`, {
           headers: DEFAULT_HEADERS
         })
         const pollJson = await pollRes.json()
@@ -99,7 +98,7 @@ export class BilibiliLogin extends plugin {
 
         // 二维码失效
         if (data.code === 86038) {
-          e.reply('二维码已失效，请重新获取')
+          await e.reply('二维码已失效，请重新获取')
           return true
         }
 
@@ -129,31 +128,32 @@ export class BilibiliLogin extends plugin {
             await getBiliTicket(csrfMatch[1])
           }
 
+          // 先校验新账号，校验通过才覆盖本地 Cookie，避免把原本能用的 Cookie 冲掉
+          const userInfo = await api.getMyInfo(cookie)
+          if (!userInfo) {
+            await e.reply('扫码成功但账号校验失败（可能被风控或网络异常），已保留原 Cookie，请稍后重试')
+            return true
+          }
+
           // 保存Cookie
           setting.setCookie(cookie, data.refresh_token)
 
-          // 获取用户信息
-          const userInfo = await api.getMyInfo(cookie)
-          if (userInfo) {
-            e.reply([
-              'B站登录成功！\n',
-              segment.image(userInfo.face),
-              `\n账号: ${userInfo.uname}`,
-              `\n等级: Lv.${userInfo.level_info?.current_level || 0}`,
-              `\n硬币: ${userInfo.money || 0}`
-            ])
-          } else {
-            e.reply('B站登录成功！')
-          }
+          await e.reply([
+            'B站登录成功！\n',
+            segment.image(userInfo.face),
+            `\n账号: ${userInfo.uname}`,
+            `\n等级: Lv.${userInfo.level_info?.current_level || 0}`,
+            `\n硬币: ${userInfo.money || 0}`
+          ])
 
           return true
         }
       }
 
-      e.reply('登录超时，请重新扫码')
+      await e.reply('登录超时，请重新扫码')
     } catch (error) {
       logger.error(`[Bilibili] 登录异常: ${error.message}`)
-      e.reply(`登录失败: ${error.message}`)
+      await e.reply(`登录失败: ${error.message}`)
     }
 
     return true
@@ -167,17 +167,17 @@ export class BilibiliLogin extends plugin {
 
     const cookie = setting.getCookie()
     if (!cookie) {
-      e.reply('未登录B站账号，请先执行 #b站登录')
+      await e.reply('未登录B站账号，请先执行 #b站登录')
       return true
     }
 
     const userInfo = await api.getMyInfo()
     if (!userInfo) {
-      e.reply('获取账号信息失败，Cookie可能已失效')
+      await e.reply('获取账号信息失败，Cookie可能已失效')
       return true
     }
 
-    e.reply([
+    await e.reply([
       segment.image(userInfo.face),
       `\n账号: ${userInfo.uname}`,
       `\nUID: ${userInfo.mid}`,
@@ -197,13 +197,13 @@ export class BilibiliLogin extends plugin {
 
     const cookie = setting.getCookie()
     if (!cookie) {
-      e.reply('未登录B站账号')
+      await e.reply('未登录B站账号')
       return true
     }
 
     const refreshToken = setting.getRefreshToken()
     if (!refreshToken) {
-      e.reply('缺少刷新令牌，请重新登录')
+      await e.reply('缺少刷新令牌，请重新登录')
       return true
     }
 
@@ -215,16 +215,16 @@ export class BilibiliLogin extends plugin {
       const csrf = csrfMatch ? csrfMatch[1] : ''
 
       const headers = { ...DEFAULT_HEADERS, Cookie: cookie }
-      const checkRes = await fetch(`${API_ENDPOINTS.COOKIE_INFO}?csrf=${csrf}`, { headers })
+      const checkRes = await fetchBili(`${API_ENDPOINTS.COOKIE_INFO}?csrf=${csrf}`, { headers })
       const checkJson = await checkRes.json()
 
       if (checkJson.code !== 0) {
-        e.reply(`检查失败: ${checkJson.message}`)
+        await e.reply(`检查失败: ${checkJson.message}`)
         return true
       }
 
       if (!checkJson.data.refresh && !force) {
-        e.reply('Cookie状态正常，无需刷新。如需强制刷新请发送：#强制刷新b站ck')
+        await e.reply('Cookie状态正常，无需刷新。如需强制刷新请发送：#强制刷新b站ck')
         return true
       }
 
@@ -232,12 +232,12 @@ export class BilibiliLogin extends plugin {
       const timestamp = checkJson.data.timestamp
       const correspondPath = await this.getCorrespondPath(timestamp)
 
-      const csrfRes = await fetch(`https://www.bilibili.com/correspond/1/${correspondPath}`, { headers })
+      const csrfRes = await fetchBili(`https://www.bilibili.com/correspond/1/${correspondPath}`, { headers })
       const csrfText = await csrfRes.text()
       const refreshCsrfMatch = csrfText.match(/id="1-name">([\w]+)<\/div>/)
 
       if (!refreshCsrfMatch) {
-        e.reply('获取刷新凭证失败')
+        await e.reply('获取刷新凭证失败')
         return true
       }
 
@@ -247,11 +247,11 @@ export class BilibiliLogin extends plugin {
       const refreshUrl = `${API_ENDPOINTS.COOKIE_REFRESH}?csrf=${csrf}&source=main_web&refresh_csrf=${refreshCsrf}&refresh_token=${refreshToken}`
       headers.Accept = 'application/x-www-form-urlencoded'
 
-      const refreshRes = await fetch(refreshUrl, { method: 'POST', headers })
+      const refreshRes = await fetchBili(refreshUrl, { method: 'POST', headers })
       const refreshJson = await refreshRes.json()
 
       if (refreshJson.code !== 0) {
-        e.reply(`刷新失败: ${refreshJson.message}`)
+        await e.reply(`刷新失败: ${refreshJson.message}`)
         return true
       }
 
@@ -267,36 +267,38 @@ export class BilibiliLogin extends plugin {
 
       const newRefreshToken = refreshJson.data.refresh_token
 
+      // 先校验新 Cookie，能拿到账号信息才继续：
+      // 确认刷新会让旧 refresh_token 失效，校验失败时若已确认刷新，旧 Cookie 就再也刷不动了
+      const userInfo = await api.getMyInfo(newCookie)
+      if (!userInfo) {
+        await e.reply('Cookie 已刷新但校验失败（可能被风控或网络异常），已保留原 Cookie，请稍后重试')
+        return true
+      }
+
       // 确认刷新（使旧Token失效）
       const newCsrfMatch = newCookie.match(/bili_jct=([\w]+)/)
       const newCsrf = newCsrfMatch ? newCsrfMatch[1] : ''
 
-      await fetch(`${API_ENDPOINTS.CONFIRM_REFRESH}?csrf=${newCsrf}&refresh_token=${refreshToken}`, {
+      await fetchBili(`${API_ENDPOINTS.CONFIRM_REFRESH}?csrf=${newCsrf}&refresh_token=${refreshToken}`, {
         method: 'POST',
         headers: { ...DEFAULT_HEADERS, Cookie: newCookie }
       })
 
-      // 生成新BiliTicket
+      // 生成新BiliTicket（会写入 Redis，放在校验通过之后，避免旧 Cookie 配上新账号的票）
       await getBiliTicket(newCsrf)
 
       // 保存新Cookie
       setting.setCookie(newCookie, newRefreshToken)
 
-      // 获取用户信息
-      const userInfo = await api.getMyInfo(newCookie)
-      if (userInfo) {
-        e.reply([
-          'B站Cookie刷新成功！\n',
-          segment.image(userInfo.face),
-          `\n账号: ${userInfo.uname}`,
-          `\n等级: Lv.${userInfo.level_info?.current_level || 0}`
-        ])
-      } else {
-        e.reply('B站Cookie刷新成功！')
-      }
+      await e.reply([
+        'B站Cookie刷新成功！\n',
+        segment.image(userInfo.face),
+        `\n账号: ${userInfo.uname}`,
+        `\n等级: Lv.${userInfo.level_info?.current_level || 0}`
+      ])
     } catch (error) {
       logger.error(`[Bilibili] 刷新Cookie异常: ${error.message}`)
-      e.reply(`刷新失败: ${error.message}`)
+      await e.reply(`刷新失败: ${error.message}`)
     }
 
     return true
@@ -310,7 +312,7 @@ export class BilibiliLogin extends plugin {
 
     const cookie = setting.getCookie()
     if (!cookie) {
-      e.reply('未登录B站账号')
+      await e.reply('未登录B站账号')
       return true
     }
 
@@ -318,9 +320,9 @@ export class BilibiliLogin extends plugin {
     setting.setCookie('', '')
 
     if (userInfo) {
-      e.reply(`已删除B站账号: ${userInfo.uname}`)
+      await e.reply(`已删除B站账号: ${userInfo.uname}`)
     } else {
-      e.reply('已删除B站Cookie')
+      await e.reply('已删除B站Cookie')
     }
 
     return true
@@ -334,9 +336,9 @@ export class BilibiliLogin extends plugin {
 
     const success = setting.clearTemp()
     if (success) {
-      e.reply('已清空B站缓存')
+      await e.reply('已清空B站缓存')
     } else {
-      e.reply('清空缓存失败')
+      await e.reply('清空缓存失败')
     }
 
     return true
@@ -348,16 +350,15 @@ export class BilibiliLogin extends plugin {
   parseCookie(setCookieHeader) {
     if (!setCookieHeader) return ''
 
-    const cookies = setCookieHeader.split(',')
+    // set-cookie 的 Expires 属性自带逗号（Thu, 11 Dec 2026 ...），
+    // 直接按逗号切会把日期当成 cookie，只有在「逗号后紧跟 name=」时才算下一个 cookie
+    const segments = String(setCookieHeader).split(/,(?=\s*[\w.-]+\s*=)/)
     const cookiePairs = []
 
-    for (const cookie of cookies) {
-      const parts = cookie.split(';')
-      if (parts[0]) {
-        const pair = parts[0].trim()
-        if (pair && !pair.startsWith('expires') && !pair.startsWith('path') && !pair.startsWith('domain')) {
-          cookiePairs.push(pair)
-        }
+    for (const cookie of segments) {
+      const pair = cookie.split(';')[0].trim()
+      if (pair && pair.includes('=')) {
+        cookiePairs.push(pair)
       }
     }
 

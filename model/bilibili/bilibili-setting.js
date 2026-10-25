@@ -120,7 +120,16 @@ class BilibiliSetting {
   getConfig() {
     const defConfig = this.getDefConfig()
     const userConfig = this.getYaml('config')
-    return this.deepMerge(defConfig, userConfig)
+
+    // 两个来源对象没被 watch 换掉就复用上次合并结果，省掉每条消息一次深拷贝
+    // 配置热重载会替换 this.def/this.config 上的对象，身份变化即自动失效
+    if (this.mergedCache?.def === defConfig && this.mergedCache?.user === userConfig) {
+      return this.mergedCache.value
+    }
+
+    const value = this.deepMerge(defConfig, userConfig)
+    this.mergedCache = { def: defConfig, user: userConfig, value }
+    return value
   }
 
   /**
@@ -399,6 +408,27 @@ class BilibiliSetting {
       config.auth.refresh_token = refreshToken
     }
     return this.setConfig(config)
+  }
+
+  /**
+   * 清理推送记录：UP 主已取消订阅后，它的时间记录就不再需要了
+   */
+  prunePushTime() {
+    const timeData = this.getData('push_time')
+    if (!timeData) return 0
+
+    const subs = this.getPushConfig()
+    let removed = 0
+    for (const key of Object.keys(timeData)) {
+      const mid = key.replace(/_time$/, '')
+      if (!subs[mid]) {
+        delete timeData[key]
+        removed++
+      }
+    }
+
+    if (removed > 0) this.setData('push_time', timeData)
+    return removed
   }
 
   /**

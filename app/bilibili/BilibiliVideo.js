@@ -65,7 +65,7 @@ export class BilibiliVideo extends plugin {
     const online = await api.getOnlineCount(bvid, cid)
 
     // 检查点赞/投币/收藏状态
-    const status = await api.checkVideoStatus(bvid)
+    const status = await api.checkVideoStatus(bvid, videoInfo.aid)
 
     // 构建展示数据
     const displayData = this.buildDisplayData(videoInfo, upInfo, online, status, pageIndex, config)
@@ -128,9 +128,7 @@ export class BilibiliVideo extends plugin {
       // 状态
       isLiked: status.like,
       isCoined: status.coin,
-      isFavoured: status.favoured,
-      // 原始数据
-      _raw: videoInfo
+      isFavoured: status.favoured
     }
   }
 
@@ -231,9 +229,12 @@ export class BilibiliVideo extends plugin {
       return duration > 0 && duration <= maxDuration
     }
 
-    // 已登录：基于文件大小判断
-    const threshold = (videoConfig.sendThreshold || 100) * 1048576
-    return estimatedSize <= threshold
+    // 已登录：按「是否允许下载」判断（fileSizeLimit），而不是直发上限
+    // 超过直发上限的视频会改走群文件上传，不应该因此不下载
+    const downloadLimit = videoConfig.fileSizeLimit > 0
+      ? videoConfig.fileSizeLimit * 1048576
+      : (videoConfig.sendThreshold || 100) * 1048576
+    return estimatedSize <= downloadLimit
   }
 
   /**
@@ -256,9 +257,9 @@ export class BilibiliVideo extends plugin {
   async stopDownload(e) {
     if (getDownloadStatus()) {
       resetDownloadLock()
-      e.reply('已终止下载')
+      await e.reply('已终止下载')
     } else {
-      e.reply('当前没有正在进行的下载')
+      await e.reply('当前没有正在进行的下载')
     }
     return true
   }
@@ -282,7 +283,7 @@ export class BilibiliVideo extends plugin {
       return true
     }
 
-    e.reply('获取封面失败')
+    await e.reply('获取封面失败')
     return false
   }
 
@@ -295,7 +296,7 @@ export class BilibiliVideo extends plugin {
 
     const desc = videoData.fullDesc || videoData.desc
     if (!desc) {
-      e.reply('该视频没有简介')
+      await e.reply('该视频没有简介')
       return true
     }
 

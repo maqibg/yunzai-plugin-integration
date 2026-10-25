@@ -2,9 +2,8 @@
  * Bilibili 评论系统模块
  * 负责评论区获取和展示
  */
-import fetch from 'node-fetch'
 import setting from '../../model/bilibili/bilibili-setting.js'
-import { buildHeaders } from '../../model/bilibili/bilibili-api.js'
+import { buildHeaders, fetchBili, explainBiliCode } from '../../model/bilibili/bilibili-api.js'
 import { API_ENDPOINTS, REPLY_TYPE } from '../../model/bilibili/bilibili-const.js'
 
 export class BilibiliComment extends plugin {
@@ -39,7 +38,7 @@ export class BilibiliComment extends plugin {
 
     try {
       const url = `${API_ENDPOINTS.REPLY_MAIN}?oid=${oid}&type=${type}&sort=1&nohot=0&ps=${count}&pn=1`
-      const res = await fetch(url, { headers })
+      const res = await fetchBili(url, { headers })
       const json = await res.json()
 
       if (json.code === 12002) {
@@ -48,7 +47,7 @@ export class BilibiliComment extends plugin {
       }
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取评论失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取评论失败: ${explainBiliCode(json.code, json.message)}`)
         return []
       }
 
@@ -88,11 +87,11 @@ export class BilibiliComment extends plugin {
 
     try {
       const url = `${API_ENDPOINTS.REPLY_REPLY}?oid=${oid}&root=${rpid}&type=${type}&ps=${count}&pn=1`
-      const res = await fetch(url, { headers })
+      const res = await fetchBili(url, { headers })
       const json = await res.json()
 
       if (json.code !== 0) {
-        logger.error(`[Bilibili] 获取子评论失败: ${json.message}`)
+        logger.error(`[Bilibili] 获取子评论失败: ${explainBiliCode(json.code, json.message)}`)
         return []
       }
 
@@ -113,12 +112,11 @@ export class BilibiliComment extends plugin {
   parseComments(replies, sortByLike = true) {
     if (!replies?.length) return []
 
-    // 按点赞数排序
-    if (sortByLike) {
-      replies.sort((a, b) => b.like - a.like)
-    }
+    // 按点赞数排序；用副本排序，避免改掉接口返回的原始顺序影响后续按序取值
+    const sorted = sortByLike ? [...replies].sort((a, b) => b.like - a.like) : replies
 
-    return replies.map(r => {
+
+    return sorted.map(r => {
       const comment = {
         rpid: r.rpid,
         name: r.member?.uname || '',
@@ -196,14 +194,16 @@ export class BilibiliComment extends plugin {
     const oid = videoData.bvid || videoData.commentId
     const type = videoData.commentType || REPLY_TYPE.VIDEO
 
-    const comments = await this.getComments(oid, type, 20)
+    // 展开条数跟随 display.commentCount 配置，未配置时沿用 20
+    const count = setting.getConfig().display?.commentCount || 20
+    const comments = await this.getComments(oid, type, count)
     if (!comments.length) {
-      e.reply('暂无评论')
+      await e.reply('暂无评论')
       return true
     }
 
     if (index < 1 || index > comments.length) {
-      e.reply(`请选择 1-${comments.length} 的评论序号`)
+      await e.reply(`请选择 1-${comments.length} 的评论序号`)
       return true
     }
 
@@ -293,16 +293,6 @@ export class BilibiliComment extends plugin {
   }
 
   /**
-   * 格式化数字
-   */
-  formatNumber(num) {
-    if (num >= 10000) {
-      return (num / 10000).toFixed(1) + '万'
-    }
-    return num.toString()
-  }
-
-  /**
    * 下载评论区图片
    */
   async downloadCommentImages(e) {
@@ -323,7 +313,7 @@ export class BilibiliComment extends plugin {
           return true
         }
       }
-      e.reply('该评论没有图片')
+      await e.reply('该评论没有图片')
       return true
     }
 
