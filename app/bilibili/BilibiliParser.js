@@ -237,6 +237,9 @@ export class BilibiliParser extends plugin {
       return false
     }
 
+    // av 链接解析出的是 av 号，这里换成真实 BV 号，下游（分P选择/下载/命名）统一按 BV 处理
+    bvid = videoInfo.bvid
+
     // 检查是否多P
     const pages = videoInfo.pages || []
     if (pages.length > 1) {

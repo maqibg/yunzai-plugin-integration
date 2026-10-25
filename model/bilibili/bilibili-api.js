@@ -207,7 +207,11 @@ class BilibiliApi {
    */
   async getVideoInfo(bvid) {
     try {
-      const url = `${API_ENDPOINTS.VIDEO_INFO}?bvid=${bvid}`
+      // 兼容 av 号：av 链接解析出来的是 av 号，接口需要用 aid 查询
+      const av = String(bvid).match(/^av(\d+)$/i)
+      const url = av
+        ? `${API_ENDPOINTS.VIDEO_INFO}?aid=${av[1]}`
+        : `${API_ENDPOINTS.VIDEO_INFO}?bvid=${bvid}`
       const res = await fetch(url, { headers: DEFAULT_HEADERS })
       const json = await res.json()
 
