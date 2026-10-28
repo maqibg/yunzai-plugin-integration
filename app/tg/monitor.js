@@ -382,6 +382,27 @@ async function sendForwardToTarget(eCtx, target, list, nickname = '') {
   }
 }
 
+// 发送一批合并转发；失败就把这批对半拆开重试，避免一次压断 QQ 长连接导致整批丢失
+async function sendChunkResilient(eCtx, target, chunk) {
+  try {
+    await sendForwardToTarget(eCtx, target, chunk)
+    return chunk.length
+  } catch (err) {
+    const msg = err?.response?.data?.description || err?.message || '未知错误'
+    if (chunk.length > 1) {
+      const mid = Math.ceil(chunk.length / 2)
+      logger.warn(`[TG] ${chunk.length} 条合并转发失败（${msg}），拆成 ${mid}+${chunk.length - mid} 条重试`)
+      await new Promise(r => setTimeout(r, 1000))
+      const first = await sendChunkResilient(eCtx, target, chunk.slice(0, mid))
+      await new Promise(r => setTimeout(r, 1000))
+      const second = await sendChunkResilient(eCtx, target, chunk.slice(mid))
+      return first + second
+    }
+    logger.error(`[TG] 合并转发发送失败: ${msg}`)
+    return 0
+  }
+}
+
 // 为目标构造一个用于 makeForwardMsg 的上下文事件（最小化模拟）
 function buildEventCtxForTarget(target) {
   if (target.type === 'group') {
@@ -448,6 +469,8 @@ async function pullTelegramMessages(e) {
     }
 
     logger.info('[TG] 开始手动拉取TG消息...')
+    // 先回一句，避免拉取+下载耗时较长时主人以为没反应
+    await e.reply('已开始拉取 TG 消息，处理完再汇报结果…')
     
     // 注意：官方端点请求可走代理；本地端点直连
     const agents = buildAgents(proxy)
@@ -602,14 +625,9 @@ async function pullTelegramMessages(e) {
       const size = Number((batch && batch.size) || 8)
       for (let i = 0; i < item.list.length; i += size) {
         const chunk = item.list.slice(i, i + size)
-        try {
-await sendForwardToTarget(item.eCtx, item.target, chunk, cfg?.nickname)
-          totalSent += chunk.length
-        } catch (err) {
-          const msg = err?.response?.data?.description || err?.message || '未知错误'
-          logger.error(`[TG] 合并转发发送失败: ${msg}`)
-          hadError = true
-        }
+        const sent = await sendChunkResilient(item.eCtx, item.target, chunk)
+        if (sent < chunk.length) hadError = true
+        totalSent += sent
       }
       // 按策略清理：仅删除白名单目录内的已转发文件
       try {
@@ -653,8 +671,14 @@ await sendForwardToTarget(item.eCtx, item.target, chunk, cfg?.nickname)
     
   } catch (error) {
     const msg = error?.response?.data?.description || error?.message || '未知错误'
-    logger.error(`[TG] 拉取失败: ${msg}`)
-    await e.reply('TG 拉取失败，请查看日志')
+    // 本地 Bot API 没起来时原始错误是一串 ECONNREFUSED，对使用者没有意义，翻译成人话
+    const localDown = /ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT/i.test(msg)
+    logger.error(localDown
+      ? `[TG] 拉取失败: 本地 TG 服务不可用（原始错误：${msg}）`
+      : `[TG] 拉取失败: ${msg}`)
+    await e.reply(localDown
+      ? 'TG 拉取失败：本地 TG 服务（telegram-bot-api 容器）没有启动或端口不通'
+      : 'TG 拉取失败，请查看日志')
     return false
   }
 }

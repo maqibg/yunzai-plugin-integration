@@ -57,3 +57,7 @@ CLAUDE.md
 .claude/*
 .claude
 AGENTS.md
+
+# Telegram 应用凭证
+.env
+**/.env
