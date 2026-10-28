@@ -27,5 +27,13 @@ for (const file of files) {
   }
 }
 
+// 进程启动时自检：重置下载队列，并清掉上次运行遗留的临时文件
+try {
+  const { startupReset } = await import('../model/bilibili/bilibili-download.js')
+  await startupReset()
+} catch (error) {
+  logger.error(`[Bilibili] 启动自检失败: ${error.message}`)
+}
+
 // 导出 apps 对象，供主入口识别
 export { apps }

@@ -564,6 +564,12 @@ class BilibiliApi {
         location.match(/t\.bilibili\.com\/([\w]+)/)
       if (match) return { type: 'dynamic', id: match[1] }
 
+      // 匹配直播间：QQ 分享直播的卡片走的往往是 b23.tv 短链，
+      // 跳转后是 live.bilibili.com/<房间号>，之前不认这种跳转，
+      // 结果被地球姬插件当成视频去解析，回了一句“解析失败”
+      match = location.match(/live\.bilibili\.com\/(?:h5\/)?(\d+)/)
+      if (match) return { type: 'live', id: match[1] }
+
       return null
     } catch (error) {
       logger.error(`[Bilibili] 解析短链接失败: ${error.message}`)
