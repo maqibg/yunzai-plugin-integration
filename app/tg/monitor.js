@@ -346,7 +346,7 @@ async function sendForwardToTarget(eCtx, target, list, nickname = '') {
     // 添加实际消息节点
     for (let item of validList) {
       forwardNodes.push({
-        nickname: nickname || 'TG频道',
+        nickname: nickname || '瘤萎',
         user_id: String(80000000),  // 合并转发节点的虚拟ID，保持字符串
         message: item,              // 保持数组格式
         time: Date.now()
@@ -383,9 +383,9 @@ async function sendForwardToTarget(eCtx, target, list, nickname = '') {
 }
 
 // 发送一批合并转发；失败就把这批对半拆开重试，避免一次压断 QQ 长连接导致整批丢失
-async function sendChunkResilient(eCtx, target, chunk) {
+async function sendChunkResilient(eCtx, target, chunk, nickname = '') {
   try {
-    await sendForwardToTarget(eCtx, target, chunk)
+    await sendForwardToTarget(eCtx, target, chunk, nickname)
     return chunk.length
   } catch (err) {
     const msg = err?.response?.data?.description || err?.message || '未知错误'
@@ -393,9 +393,9 @@ async function sendChunkResilient(eCtx, target, chunk) {
       const mid = Math.ceil(chunk.length / 2)
       logger.warn(`[TG] ${chunk.length} 条合并转发失败（${msg}），拆成 ${mid}+${chunk.length - mid} 条重试`)
       await new Promise(r => setTimeout(r, 1000))
-      const first = await sendChunkResilient(eCtx, target, chunk.slice(0, mid))
+      const first = await sendChunkResilient(eCtx, target, chunk.slice(0, mid), nickname)
       await new Promise(r => setTimeout(r, 1000))
-      const second = await sendChunkResilient(eCtx, target, chunk.slice(mid))
+      const second = await sendChunkResilient(eCtx, target, chunk.slice(mid), nickname)
       return first + second
     }
     logger.error(`[TG] 合并转发发送失败: ${msg}`)
@@ -469,8 +469,6 @@ async function pullTelegramMessages(e) {
     }
 
     logger.info('[TG] 开始手动拉取TG消息...')
-    // 先回一句，避免拉取+下载耗时较长时主人以为没反应
-    await e.reply('已开始拉取 TG 消息，处理完再汇报结果…')
     
     // 注意：官方端点请求可走代理；本地端点直连
     const agents = buildAgents(proxy)
@@ -625,7 +623,7 @@ async function pullTelegramMessages(e) {
       const size = Number((batch && batch.size) || 8)
       for (let i = 0; i < item.list.length; i += size) {
         const chunk = item.list.slice(i, i + size)
-        const sent = await sendChunkResilient(item.eCtx, item.target, chunk)
+        const sent = await sendChunkResilient(item.eCtx, item.target, chunk, cfg?.nickname)
         if (sent < chunk.length) hadError = true
         totalSent += sent
       }
