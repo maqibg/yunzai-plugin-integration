@@ -1,402 +1,305 @@
 /**
  * Bilibili Guoba配置面板
+ * 使用 GSubForm 结构：每个段是一个子表单，field 对应 getConfigData 返回的顶层键
  */
-export const bilibiliSchema = {
-  // 基础配置
-  basic: {
-    title: 'B站解析 - 基础配置',
-    cfg: {
-      enable: {
-        title: '启用B站解析',
-        key: 'basic.enable',
-        type: 'switch',
-        def: true,
-        desc: '是否启用B站视频/动态解析功能'
-      },
-      cooldown: {
-        title: '解析冷却时间',
-        key: 'basic.cooldown',
-        type: 'number',
-        min: 0,
-        max: 600,
-        def: 180,
-        desc: '同一视频/动态的解析冷却时间（秒），0表示无冷却'
-      }
-    }
-  },
 
-  // 视频配置
-  video: {
-    title: 'B站解析 - 视频配置',
-    cfg: {
-      quality: {
-        title: '默认画质',
-        key: 'video.quality',
-        type: 'select',
-        def: 64,
-        options: [
-          { label: '360P 流畅', value: 16 },
-          { label: '480P 清晰', value: 32 },
-          { label: '720P 高清', value: 64 },
-          { label: '720P60 高帧率', value: 74 },
-          { label: '1080P 高清', value: 80 },
-          { label: '1080P+ 高码率 (需大会员)', value: 112 },
-          { label: '1080P60 高帧率 (需大会员)', value: 116 },
-          { label: '4K 超清 (需大会员)', value: 120 }
-        ],
-        desc: '默认下载画质，高画质需要大会员权限'
-      },
-      durationLimit: {
-        title: '时长限制',
-        key: 'video.durationLimit',
-        type: 'number',
-        min: 0,
-        max: 36000,
-        def: 3600,
-        desc: '视频时长限制（秒），超过则只发信息不下载。0表示无限制'
-      },
-      fileSizeLimit: {
-        title: '文件大小限制',
-        key: 'video.fileSizeLimit',
-        type: 'number',
-        min: 0,
-        max: 1000,
-        def: 200,
-        desc: '文件大小限制（MB），超过则不下载。0表示无限制'
-      },
-      sendThreshold: {
-        title: '群文件阈值',
-        key: 'video.sendThreshold',
-        type: 'number',
-        min: 10,
-        max: 200,
-        def: 100,
-        desc: '超过此大小（MB）的视频上传为群文件'
-      }
-    }
-  },
-
-  // 智能画质配置
-  smartQuality: {
-    title: 'B站解析 - 智能画质',
-    cfg: {
-      enable: {
-        title: '启用智能画质',
-        key: 'video.smartQuality.enable',
-        type: 'switch',
-        def: true,
-        desc: '根据文件大小自动降低画质'
-      },
-      threshold: {
-        title: '降级触发阈值',
-        key: 'video.smartQuality.threshold',
-        type: 'number',
-        min: 10,
-        max: 500,
-        def: 100,
-        desc: '视频超过此大小（MB）时尝试降级'
-      },
-      targetSize: {
-        title: '目标大小',
-        key: 'video.smartQuality.targetSize',
-        type: 'number',
-        min: 10,
-        max: 200,
-        def: 80,
-        desc: '降级后尝试达到的目标大小（MB）'
-      },
-      showNotice: {
-        title: '显示降级提示',
-        key: 'video.smartQuality.showNotice',
-        type: 'switch',
-        def: true,
-        desc: '发生画质降级时显示提示消息'
-      }
-    }
-  },
-
-  // 分P配置
-  multiPage: {
-    title: 'B站解析 - 分P配置',
-    cfg: {
-      timeout: {
-        title: '选择超时',
-        key: 'multiPage.timeout',
-        type: 'number',
-        min: 30,
-        max: 600,
-        def: 300,
-        desc: '分P选择等待超时时间（秒）'
-      },
-      autoFirstPage: {
-        title: '自动第一P',
-        key: 'multiPage.autoFirstPage',
-        type: 'switch',
-        def: false,
-        desc: '多P视频自动播放第一P而不询问'
-      }
-    }
-  },
-
-  // 显示配置
-  display: {
-    title: 'B站解析 - 显示配置',
-    cfg: {
-      showCover: {
-        title: '显示封面',
-        key: 'display.showCover',
-        type: 'switch',
-        def: true,
-        desc: '是否显示视频封面图片'
-      },
-      showStats: {
-        title: '显示统计',
-        key: 'display.showStats',
-        type: 'switch',
-        def: true,
-        desc: '是否显示播放量、点赞等统计数据'
-      },
-      showDesc: {
-        title: '显示简介',
-        key: 'display.showDesc',
-        type: 'switch',
-        def: true,
-        desc: '是否显示视频简介'
-      },
-      descMaxLength: {
-        title: '简介最大长度',
-        key: 'display.descMaxLength',
-        type: 'number',
-        min: 50,
-        max: 500,
-        def: 120,
-        desc: '视频简介显示的最大字符数'
-      },
-      showSummary: {
-        title: '显示AI摘要',
-        key: 'display.showSummary',
-        type: 'switch',
-        def: false,
-        desc: '是否显示B站AI生成的视频摘要'
-      },
-      commentCount: {
-        title: '评论数量',
-        key: 'display.commentCount',
-        type: 'number',
-        min: 1,
-        max: 20,
-        def: 10,
-        desc: '评论区显示条数'
-      }
-    }
-  },
-
-  // 动态配置
-  dynamic: {
-    title: 'B站解析 - 动态配置',
-    cfg: {
-      enable: {
-        title: '启用动态解析',
-        key: 'dynamic.enable',
-        type: 'switch',
-        def: true,
-        desc: '是否启用B站动态解析'
-      },
-      sendImages: {
-        title: '发送图片',
-        key: 'dynamic.sendImages',
-        type: 'switch',
-        def: true,
-        desc: '是否发送动态中的图片'
-      },
-      imageLimit: {
-        title: '图片数量限制',
-        key: 'dynamic.imageLimit',
-        type: 'number',
-        min: 0,
-        max: 20,
-        def: 5,
-        desc: '单条动态最多发送的图片数量，0表示不限制'
-      }
-    }
-  },
-
-  // 互动配置
-  interact: {
-    title: 'B站解析 - 互动配置',
-    cfg: {
-      enable: {
-        title: '启用互动功能',
-        key: 'interact.enable',
-        type: 'switch',
-        def: true,
-        desc: '是否启用点赞、投币、收藏等互动功能'
-      },
-      defaultFavFolder: {
-        title: '默认收藏夹',
-        key: 'interact.defaultFavFolder',
-        type: 'number',
-        min: 1,
-        max: 100,
-        def: 1,
-        desc: '收藏视频时使用的收藏夹序号'
-      }
-    }
-  },
-
-  // 推送配置
-  push: {
-    title: 'B站解析 - 推送配置',
-    cfg: {
-      enable: {
-        title: '启用视频推送',
-        key: 'push.enable',
-        type: 'switch',
-        def: true,
-        desc: '是否启用UP主视频更新推送'
-      },
-      interval: {
-        title: '检查间隔',
-        key: 'push.interval',
-        type: 'number',
-        min: 1,
-        max: 60,
-        def: 3,
-        desc: '检查UP主更新的间隔时间（分钟）'
-      }
-    }
-  },
-
-  // 链接配置
-  link: {
-    title: 'B站解析 - 链接配置',
-    cfg: {
-      showOriginal: {
-        title: '显示原链接',
-        key: 'link.showOriginal',
-        type: 'switch',
-        def: true,
-        desc: '解析后是否发送原B站链接'
-      }
-    }
-  },
-
-  // 综合解析配置（抖音 / 快手 / 小红书 / 小黑盒）
-  parse: {
-    title: '综合解析 - 抖音/快手/小红书/小黑盒',
-    cfg: {
-      enable: {
-        title: '启用综合解析',
-        key: 'parse.enable',
-        type: 'switch',
-        def: true,
-        desc: '群里直接发分享链接即解析，无需指令'
-      },
-      douyin: {
-        title: '解析抖音',
-        key: 'parse.douyin',
-        type: 'switch',
-        def: true,
-        desc: '关闭后抖音链接不再自动解析'
-      },
-      kuaishou: {
-        title: '解析快手',
-        key: 'parse.kuaishou',
-        type: 'switch',
-        def: true,
-        desc: '关闭后快手链接不再自动解析'
-      },
-      xiaohongshu: {
-        title: '解析小红书',
-        key: 'parse.xiaohongshu',
-        type: 'switch',
-        def: true,
-        desc: '关闭后小红书链接不再自动解析'
-      },
-      heybox: {
-        title: '解析小黑盒',
-        key: 'parse.heybox',
-        type: 'switch',
-        def: true,
-        desc: '关闭后小黑盒链接不再自动解析'
-      },
-      sendVideo: {
-        title: '发送视频本体',
-        key: 'parse.sendVideo',
-        type: 'switch',
-        def: true,
-        desc: '关闭后只发标题、封面与链接，不下载视频'
-      },
-      showCover: {
-        title: '发送封面',
-        key: 'parse.showCover',
-        type: 'switch',
-        def: true,
-        desc: '解析结果是否附带封面图'
-      },
-      durationLimit: {
-        title: '视频时长上限',
-        key: 'parse.durationLimit',
-        type: 'number',
-        min: 0,
-        max: 7200,
-        def: 600,
-        desc: '超过此时长（秒）只发信息与链接，不下载视频'
-      },
-      fileSizeLimit: {
-        title: '视频体积上限',
-        key: 'parse.fileSizeLimit',
-        type: 'number',
-        min: 0,
-        max: 500,
-        def: 100,
-        desc: '超过此大小（MB）只发信息与链接，0 表示不限制'
-      },
-      cooldown: {
-        title: '解析冷却时间',
-        key: 'parse.cooldown',
-        type: 'number',
-        min: 0,
-        max: 600,
-        def: 30,
-        desc: '同一链接在同一群（私聊按人）的冷却时间（秒），0 表示无冷却'
-      },
-      imageLimit: {
-        title: '单条最多发图',
-        key: 'parse.imageLimit',
-        type: 'number',
-        min: 1,
-        max: 40,
-        def: 18,
-        desc: '图文/图集最多发送的图片数量'
-      },
-      maxLive: {
-        title: '实况图上限',
-        key: 'parse.maxLive',
-        type: 'number',
-        min: 0,
-        max: 20,
-        def: 6,
-        desc: '小红书实况图最多按视频发送的数量'
-      },
-      xhsCookie: {
-        title: '小红书 Cookie',
-        key: 'parse.xhsCookie',
-        type: 'input',
-        def: '',
-        desc: '公开笔记留空即可；登录态笔记才需要填写'
-      },
-      heyboxCookie: {
-        title: '小黑盒 Cookie',
-        key: 'parse.heyboxCookie',
-        type: 'input',
-        def: '',
-        desc: '触发风控验证码时填写登录 cookie，可解除限制'
-      }
-    }
-  }
+const onOff = {
+  checkedChildren: '开启',
+  unCheckedChildren: '关闭'
 }
 
+// 视频画质选项，与原配置里的数值一一对应
+const QUALITY_OPTIONS = [
+  { label: '360P 流畅', value: 16 },
+  { label: '480P 清晰', value: 32 },
+  { label: '720P 高清', value: 64 },
+  { label: '720P60 高帧率', value: 74 },
+  { label: '1080P 高清', value: 80 },
+  { label: '1080P+ 高码率 (需大会员)', value: 112 },
+  { label: '1080P60 高帧率 (需大会员)', value: 116 },
+  { label: '4K 超清 (需大会员)', value: 120 }
+]
+
+export const bilibiliSchemas = [
+  {
+    field: 'basic',
+    label: 'B站解析 - 基础配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'enable',
+          label: '启用B站解析',
+          bottomHelpMessage: '是否启用B站视频/动态解析功能',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'cooldown',
+          label: '解析冷却时间（秒）',
+          bottomHelpMessage: '同一视频/动态的解析冷却时间，0 表示无冷却',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 600, step: 10 }
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'video',
+    label: 'B站解析 - 视频配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'quality',
+          label: '默认画质',
+          bottomHelpMessage: '高画质需要大会员权限',
+          component: 'Select',
+          componentProps: {
+            options: QUALITY_OPTIONS
+          }
+        },
+        {
+          field: 'durationLimit',
+          label: '时长限制（秒）',
+          bottomHelpMessage: '超过此时长只发信息不下载，0 表示无限制',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 36000, step: 60 }
+        },
+        {
+          field: 'fileSizeLimit',
+          label: '文件大小限制（MB）',
+          bottomHelpMessage: '超过此大小不下载，0 表示无限制',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1000, step: 10 }
+        },
+        {
+          field: 'sendThreshold',
+          label: '群文件阈值（MB）',
+          bottomHelpMessage: '超过此大小的视频上传为群文件',
+          component: 'InputNumber',
+          componentProps: { min: 10, max: 200, step: 10 }
+        }
+      ]
+    }
+  },
+
+  {
+    // 数据实际落在 video.smartQuality，getConfigData 会单独暴露成顶层键
+    field: 'smartQuality',
+    label: 'B站解析 - 智能画质',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'enable',
+          label: '启用智能画质',
+          bottomHelpMessage: '根据文件大小自动降低画质',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'threshold',
+          label: '降级触发阈值（MB）',
+          bottomHelpMessage: '视频超过此大小时尝试降级',
+          component: 'InputNumber',
+          componentProps: { min: 10, max: 500, step: 10 }
+        },
+        {
+          field: 'targetSize',
+          label: '目标大小（MB）',
+          bottomHelpMessage: '降级后尝试达到的目标大小',
+          component: 'InputNumber',
+          componentProps: { min: 10, max: 200, step: 10 }
+        },
+        {
+          field: 'showNotice',
+          label: '显示降级提示',
+          bottomHelpMessage: '发生画质降级时显示提示消息',
+          component: 'Switch',
+          componentProps: onOff
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'multiPage',
+    label: 'B站解析 - 分P配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'timeout',
+          label: '选择超时（秒）',
+          bottomHelpMessage: '分P选择等待超时时间',
+          component: 'InputNumber',
+          componentProps: { min: 30, max: 600, step: 30 }
+        },
+        {
+          field: 'autoFirstPage',
+          label: '自动播放第一P',
+          bottomHelpMessage: '多P视频自动播放第一P而不询问',
+          component: 'Switch',
+          componentProps: onOff
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'display',
+    label: 'B站解析 - 显示配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'showCover',
+          label: '显示封面',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'showStats',
+          label: '显示统计',
+          bottomHelpMessage: '播放量、点赞等统计数据',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'showDesc',
+          label: '显示简介',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'descMaxLength',
+          label: '简介最大长度',
+          component: 'InputNumber',
+          componentProps: { min: 50, max: 500, step: 10 }
+        },
+        {
+          field: 'showSummary',
+          label: '显示AI摘要',
+          bottomHelpMessage: '需要有效 Cookie 才能取到摘要',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'commentCount',
+          label: '评论数量',
+          bottomHelpMessage: '评论区显示条数',
+          component: 'InputNumber',
+          componentProps: { min: 1, max: 20, step: 1 }
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'dynamic',
+    label: 'B站解析 - 动态配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'enable',
+          label: '启用动态解析',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'sendImages',
+          label: '发送动态图片',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'imageLimit',
+          label: '图片数量限制',
+          bottomHelpMessage: '单条动态最多发送的图片数量，0 表示不限制',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 20, step: 1 }
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'interact',
+    label: 'B站解析 - 互动配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'enable',
+          label: '启用互动功能',
+          bottomHelpMessage: '点赞、投币、收藏等互动',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'defaultFavFolder',
+          label: '默认收藏夹',
+          bottomHelpMessage: '收藏视频时使用的收藏夹序号',
+          component: 'InputNumber',
+          componentProps: { min: 1, max: 100, step: 1 }
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'push',
+    label: 'B站解析 - 推送配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'enable',
+          label: '启用视频推送',
+          bottomHelpMessage: 'UP主视频更新推送',
+          component: 'Switch',
+          componentProps: onOff
+        },
+        {
+          field: 'interval',
+          label: '检查间隔（分钟）',
+          component: 'InputNumber',
+          componentProps: { min: 1, max: 60, step: 1 }
+        }
+      ]
+    }
+  },
+
+  {
+    field: 'link',
+    label: 'B站解析 - 链接配置',
+    component: 'GSubForm',
+    componentProps: {
+      multiple: false,
+      schemas: [
+        {
+          field: 'showOriginal',
+          label: '显示原链接',
+          bottomHelpMessage: '解析后是否发送原B站链接',
+          component: 'Switch',
+          componentProps: onOff
+        }
+      ]
+    }
+  }
+]
+
 export function getBilibiliConfigSchema() {
-  return Object.values(bilibiliSchema)
+  return bilibiliSchemas
 }

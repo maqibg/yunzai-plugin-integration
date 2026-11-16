@@ -1,5 +1,6 @@
 import { hsDingzhenSchema } from './schemas/hs-dingzhen.js'
 import { getBilibiliConfigSchema } from './schemas/bilibili.js'
+import { parseSchema } from './schemas/parse.js'
 import { rconsoleSchema } from './schemas/rconsole.js'
 import { tgSchema } from './schemas/tg.js'
 import tgSetting from '../model/tg/tg-setting.js'
@@ -9,16 +10,20 @@ import rconsoleSetting from '../model/rconsole/rconsole-setting.js'
 
 // 将所有 schema 导出一个统一的配置对象
 // key 即为后续在 config.yaml 中保存的键名
+const bilibiliSchemas = getBilibiliConfigSchema()
+
+// B 站配置在 bilibili.yaml 里的顶层段名，面板每个 GSubForm 对应其中一段
+const BILI_SECTIONS = ['basic', 'video', 'multiPage', 'display', 'dynamic', 'interact', 'push', 'link']
+
 export const config = {
   schemas: [
+    // 综合解析放在最前：面板默认展示第一组
+    parseSchema,
     {
       title: '坤坤丁真功能配置',
       ...hsDingzhenSchema
     },
-    ...getBilibiliConfigSchema().map(schema => ({
-      title: schema.title,
-      cfg: schema.cfg
-    })),
+    ...bilibiliSchemas,
     {
       title: 'Rconsole 查询与趣味',
       ...rconsoleSchema
@@ -50,6 +55,29 @@ export const config = {
     } catch (error) {
       console.error('[锅巴配置] 读取bilibili配置失败:', error.message, error.stack)
       result['bilibili'] = {}
+    }
+
+    try {
+      console.log('[锅巴配置] 展开B站各段配置...')
+      const biliConfig = bilibiliSetting.getConfig()
+      for (const key of BILI_SECTIONS) {
+        result[key] = biliConfig[key] || {}
+      }
+      // smartQuality 实际存在 video 段内，面板里作为独立子表单展示
+      result['smartQuality'] = biliConfig.video?.smartQuality || {}
+      console.log('[锅巴配置] B站各段配置展开完成')
+    } catch (error) {
+      console.error('[锅巴配置] 展开B站各段配置失败:', error.message, error.stack)
+    }
+
+    try {
+      console.log('[锅巴配置] 读取综合解析配置...')
+      // 综合解析存在 bilibili.yaml 的 parse 段，单独暴露成顶层键供 GSubForm 使用
+      result['parse'] = bilibiliSetting.getConfig().parse || {}
+      console.log('[锅巴配置] 综合解析配置读取成功')
+    } catch (error) {
+      console.error('[锅巴配置] 读取综合解析配置失败:', error.message, error.stack)
+      result['parse'] = {}
     }
     
     try {
@@ -89,6 +117,34 @@ export const config = {
         if (success) saved = true
       }
       
+      // 保存 B 站各段配置：面板每个 GSubForm 作为一个顶层键提交
+      if (BILI_SECTIONS.some(key => data[key]) || data['smartQuality']) {
+        const current = bilibiliSetting.getConfig()
+        const next = { ...current }
+
+        for (const key of BILI_SECTIONS) {
+          if (!data[key]) continue
+          // 逐段浅合并，面板没展示的字段（如 Cookie）不会被覆盖掉
+          next[key] = { ...(current[key] || {}), ...data[key] }
+        }
+
+        if (data['smartQuality']) {
+          next.video = {
+            ...(next.video || {}),
+            smartQuality: { ...(current.video?.smartQuality || {}), ...data['smartQuality'] }
+          }
+        }
+
+        if (bilibiliSetting.setConfig(next)) saved = true
+      }
+
+      // 保存综合解析配置：写回 bilibili.yaml 的 parse 段
+      if (data['parse']) {
+        const current = bilibiliSetting.getConfig()
+        const success = bilibiliSetting.setConfig({ ...current, parse: data['parse'] })
+        if (success) saved = true
+      }
+
       // 保存rconsole配置
       if (data['rconsole']) {
         const success = rconsoleSetting.setConfig('rconsole', data['rconsole'])
