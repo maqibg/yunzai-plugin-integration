@@ -279,6 +279,121 @@ export const bilibiliSchema = {
         desc: '解析后是否发送原B站链接'
       }
     }
+  },
+
+  // 综合解析配置（抖音 / 快手 / 小红书 / 小黑盒）
+  parse: {
+    title: '综合解析 - 抖音/快手/小红书/小黑盒',
+    cfg: {
+      enable: {
+        title: '启用综合解析',
+        key: 'parse.enable',
+        type: 'switch',
+        def: true,
+        desc: '群里直接发分享链接即解析，无需指令'
+      },
+      douyin: {
+        title: '解析抖音',
+        key: 'parse.douyin',
+        type: 'switch',
+        def: true,
+        desc: '关闭后抖音链接不再自动解析'
+      },
+      kuaishou: {
+        title: '解析快手',
+        key: 'parse.kuaishou',
+        type: 'switch',
+        def: true,
+        desc: '关闭后快手链接不再自动解析'
+      },
+      xiaohongshu: {
+        title: '解析小红书',
+        key: 'parse.xiaohongshu',
+        type: 'switch',
+        def: true,
+        desc: '关闭后小红书链接不再自动解析'
+      },
+      heybox: {
+        title: '解析小黑盒',
+        key: 'parse.heybox',
+        type: 'switch',
+        def: true,
+        desc: '关闭后小黑盒链接不再自动解析'
+      },
+      sendVideo: {
+        title: '发送视频本体',
+        key: 'parse.sendVideo',
+        type: 'switch',
+        def: true,
+        desc: '关闭后只发标题、封面与链接，不下载视频'
+      },
+      showCover: {
+        title: '发送封面',
+        key: 'parse.showCover',
+        type: 'switch',
+        def: true,
+        desc: '解析结果是否附带封面图'
+      },
+      durationLimit: {
+        title: '视频时长上限',
+        key: 'parse.durationLimit',
+        type: 'number',
+        min: 0,
+        max: 7200,
+        def: 600,
+        desc: '超过此时长（秒）只发信息与链接，不下载视频'
+      },
+      fileSizeLimit: {
+        title: '视频体积上限',
+        key: 'parse.fileSizeLimit',
+        type: 'number',
+        min: 0,
+        max: 500,
+        def: 100,
+        desc: '超过此大小（MB）只发信息与链接，0 表示不限制'
+      },
+      cooldown: {
+        title: '解析冷却时间',
+        key: 'parse.cooldown',
+        type: 'number',
+        min: 0,
+        max: 600,
+        def: 30,
+        desc: '同一链接在同一群（私聊按人）的冷却时间（秒），0 表示无冷却'
+      },
+      imageLimit: {
+        title: '单条最多发图',
+        key: 'parse.imageLimit',
+        type: 'number',
+        min: 1,
+        max: 40,
+        def: 18,
+        desc: '图文/图集最多发送的图片数量'
+      },
+      maxLive: {
+        title: '实况图上限',
+        key: 'parse.maxLive',
+        type: 'number',
+        min: 0,
+        max: 20,
+        def: 6,
+        desc: '小红书实况图最多按视频发送的数量'
+      },
+      xhsCookie: {
+        title: '小红书 Cookie',
+        key: 'parse.xhsCookie',
+        type: 'input',
+        def: '',
+        desc: '公开笔记留空即可；登录态笔记才需要填写'
+      },
+      heyboxCookie: {
+        title: '小黑盒 Cookie',
+        key: 'parse.heyboxCookie',
+        type: 'input',
+        def: '',
+        desc: '触发风控验证码时填写登录 cookie，可解除限制'
+      }
+    }
   }
 }
 
