@@ -35,7 +35,8 @@ export const URL_PATTERNS = {
   KUAISHOU_FULL: /https?:\/\/(?:www\.|v\.m\.|m\.)?(?:kuaishou|chenzhongtech|gifshow)\.com\/(?:short-video|photo|fw)\/[^\s'"<>]*/i,
   XHS_SHORT: /https?:\/\/xhslink\.(?:com|cn)\/[A-Za-z0-9/_-]+/i,
   XHS_NOTE: /https?:\/\/(?:www\.)?xiaohongshu\.com\/(?:explore|discovery\/item)\/[0-9a-fA-F]+[^\s'"<>]*/i,
-  HEYBOX: /https?:\/\/(?:[a-z0-9-]+\.)?(?:xiaoheihe\.cn|heybox\.cn)\/(?:app\/bbs\/link|community|link|bbs\/app\/api\/web\/share)[^\s'"<>]*/i
+  // 小黑盒的 app 分享长这样：/v3/bbs/app/api/web/share?link_id=... 或 /app/bbs/link/<id>
+  HEYBOX: /https?:\/\/(?:[a-z0-9-]+\.)?(?:xiaoheihe\.cn|heybox\.cn)\/(?:v\d+\/)?(?:bbs\/app\/api\/web\/share|app\/bbs\/link|community|link)[^\s'"<>]*/i
 }
 
 // Redis键前缀
