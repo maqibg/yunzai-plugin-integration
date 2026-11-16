@@ -97,7 +97,6 @@ async function sendForwardImages(e, result, config) {
 
   let head = [result.platform, result.title, result.author].filter(Boolean).join('\n')
   if (result.desc && result.desc !== result.title) head += `\n\n${clip(result.desc, 1200)}`
-  if (result.pageUrl) head += `\n\n🔗 ${result.pageUrl}`
   nodes.push(head)
 
   nodes.push(...await loadImageSegments(list, result.platform))
@@ -131,9 +130,9 @@ async function sendImagesDirect(e, result, config) {
 }
 
 /**
- * 下载并发送单个视频，失败回退页面链接
+ * 下载并发送单个视频，失败时只回一句原因（不再附带链接）
  */
-async function sendVideoFile(e, video, config, label = '视频', fallbackUrl = '') {
+async function sendVideoFile(e, video, config, label = '视频') {
   ensureTempDir()
   const filePath = path.join(tempPath, `parse_${Date.now()}_${Math.floor(Math.random() * 1000000)}.mp4`)
   const maxMB = Number(config.fileSizeLimit) || 0
@@ -145,9 +144,7 @@ async function sendVideoFile(e, video, config, label = '视频', fallbackUrl = '
     await e.reply(segment.video(filePath))
   } catch (error) {
     logger.error(`[解析] ${label}发送失败: ${error.message}`)
-    // 视频直链是短时效签名地址，别人点开常常已经 403，优先给作品页
-    const link = fallbackUrl || video.url
-    await e.reply(`${label}发送失败，直接甩链接👇\n🔗 ${link}`)
+    await e.reply(`${label}发送失败：${error.message}`)
   } finally {
     // 适配器在 reply 返回后还要读文件（上传/转码），立刻删会让发送偶发失败
     setTimeout(() => fs.unlink(filePath, () => { }), 60000)
@@ -170,7 +167,6 @@ export async function sendParseResult(e, result, config = {}) {
     else await e.reply(buildHeader(result))
 
     if (!card && showCover && result.cover) await e.reply(segment.image(result.cover))
-    if (result.pageUrl) await e.reply(`🔗 ${result.pageUrl}`)
     return
   }
 
@@ -184,7 +180,6 @@ export async function sendParseResult(e, result, config = {}) {
     if (!card && showCover && result.cover) await e.reply(segment.image(result.cover))
     for (const url of result.biliUrls || []) await e.reply(`文章内嵌 B站视频👇\n🔗 ${url}`)
     for (const url of result.extEmbeds || []) await e.reply(`文章内嵌视频👇\n🔗 ${url}`)
-    if (result.pageUrl) await e.reply(`🔗 ${result.pageUrl}`)
     return
   }
 
@@ -218,13 +213,12 @@ export async function sendParseResult(e, result, config = {}) {
     if (liveVideos.length && config.sendVideo !== false) {
       const maxLive = Number(config.maxLive) || 6
       for (const video of liveVideos.slice(0, maxLive)) {
-        await sendVideoFile(e, video, config, '实况图', result.pageUrl)
+        await sendVideoFile(e, video, config, '实况图')
       }
     }
 
     for (const url of result.biliUrls || []) await e.reply(`文章内嵌 B站视频👇\n🔗 ${url}`)
     for (const url of result.extEmbeds || []) await e.reply(`文章内嵌视频👇\n🔗 ${url}`)
-    if (result.pageUrl) await e.reply(`🔗 ${result.pageUrl}`)
     return
   }
 
@@ -235,7 +229,6 @@ export async function sendParseResult(e, result, config = {}) {
     else await e.reply(buildHeader(result))
 
     if (!card && showCover && result.cover) await e.reply(segment.image(result.cover))
-    if (result.pageUrl) await e.reply(`🔗 ${result.pageUrl}`)
     return
   }
 
@@ -256,15 +249,13 @@ export async function sendParseResult(e, result, config = {}) {
     }
   }
 
-  const link = result.pageUrl || result.video.url
   if (reason) {
     logger.mark(`[解析] ${result.platform} 不下载本体：${reason}`)
-    const card = await renderParseCard(result, `${reason} · 可打开链接`)
+    const card = await renderParseCard(result, reason)
     if (card) await e.reply(card)
     else await e.reply(buildHeader(result))
 
     if (!card && showCover && result.cover) await e.reply(segment.image(result.cover))
-    await e.reply(`🔗 ${link}`)
     return
   }
 
@@ -276,5 +267,5 @@ export async function sendParseResult(e, result, config = {}) {
     if (showCover && result.cover) await e.reply(segment.image(result.cover))
   }
 
-  await sendVideoFile(e, result.video, config, `${result.platform}视频`, result.pageUrl)
+  await sendVideoFile(e, result.video, config, `${result.platform}视频`)
 }
